@@ -41,7 +41,9 @@ source ~/.bashrc
 | ai-help | `ai-help [ai-sec\|sec]` | Command argument |
 | ai-perf | `ai-perf [on\|off]` | Command argument |
 | ai-compact | `ai-compact [on\|off]` | Command argument |
-| ai-skeleton| `ai-skeleton main.py` | Command argument |
+| ai-skeleton| `cat main.py \| ai-skeleton [number]` | Piped code / text |
+| ai-bench-skel | `ai-bench-skel [file] OR cat <file> \| ai-bench-skel` | File or Piped code | 
+
 
 ## How to Switch Models on the Fly
 
@@ -116,7 +118,7 @@ When you pipe commands:
 #### 1. High-Level Architecture Review
 Review code structure, class design, or potential anti-patterns without flooding the context window with implementation details:
 ```bash
-ai-skeleton main.py | ai-review
+cat main.py | ai-skeleton | ai-review
 ```
 
 #### 2. Multi-File Codebase Mapping
@@ -128,13 +130,13 @@ cat models.py services.py controllers.py | ai-skeleton | ai-explain
 #### 3. Generate Unit Test Stubs
 Ask Ollama to write test suites based purely on function signatures, type hints, and docstrings:
 ```bash
-ai-skeleton api/routes.py | ai-test
+cat api/routes.py | ai-skeleton | ai-test
 ```
 
 #### 4. Custom Targeted Prompts (`ai-ask`)
 Pass a skeletonized structure along with an explicit targeted question:
 ```bash
-ai-skeleton database.py | ai-ask "Suggest how to refactor this class hierarchy to use the Repository pattern."
+cat database.py | ai-skeleton | ai-ask "Suggest how to refactor this class hierarchy to use the Repository pattern."
 ```
 
 #### 5. Documenting Interfaces (`ai-doc`)
@@ -152,7 +154,7 @@ ai-compact off
 cat small_utils.py | ai-review
 
 # Explicitly skeletonized (lightweight review)
-ai-skeleton huge_monolith.py | ai-review
+cat  huge_monolith.py | ai-skeleton | ai-review
 ```
 
 

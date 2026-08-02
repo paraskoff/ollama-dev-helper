@@ -49,14 +49,8 @@ ai-compact() {
     fi
 }
 
-# Preview skeletonized Python code without sending to Ollama
-ai-skeleton() {
-    if [ -t 0 ] && [ -n "$1" ]; then
-        python3 "./py_skeleton.py" < "$1"
-    else
-        python3 "./py_skeleton.py"
-    fi
-}
+# Set default minimum line threshold for function skeletonization (default: 10 lines)
+export AI_SKEL_MIN_LINES="${AI_SKEL_MIN_LINES:-10}"
 
 # Internal text minifier: AST skeletonization + whitespace/comment stripping
 _compact_text() {
@@ -66,7 +60,7 @@ _compact_text() {
     if [ "$AI_COMPACT" = "true" ]; then
         if [ -f "./py_skeleton.py" ]; then
             local skeletonized
-            skeletonized=$(printf '%s\n' "$input" | python3 "./py_skeleton.py" 2>/dev/null)
+            skeletonized=$(printf '%s\n' "$input" | python3 "./py_skeleton.py" --min-lines "$AI_SKEL_MIN_LINES" 2>/dev/null)
             if [ -n "$skeletonized" ]; then
                 input="$skeletonized"
             fi
@@ -80,6 +74,21 @@ _compact_text() {
     else
         # Pass through unmodified if compaction is disabled
         printf '%s\n' "$input"
+    fi
+}
+
+# Standalone previewer accepting an optional line threshold argument
+ai-skeleton() {
+    local min_lines="${1:-$AI_SKEL_MIN_LINES}"
+    python3 "./py_skeleton.py" --min-lines "$min_lines"
+}
+
+# Benchmark context token reduction across multiple line thresholds
+ai-bench-skel() {
+    if [ -t 0 ] && [ -n "$1" ]; then
+        python3 "./py_skeleton_benchmark.py" "$1" --model "$OLLAMA_MODEL"
+    else
+        python3 "./py_skeleton_benchmark.py" --model "$OLLAMA_MODEL"
     fi
 }
 
@@ -423,6 +432,7 @@ ai-help() {
         printf "%-12s %-46s %-35s\n" "ai-perf" "Toggle performance metrics & execution timing" "ai-perf [on|off]"
         printf "%-12s %-46s %-35s\n" "ai-compact" "Toggle automatic prompt context minification" "ai-compact [on|off]"
         printf "%-12s %-46s %-35s\n" "ai-skeleton" "Preview AST skeletonized Python code" "cat main.py | ai-skeleton"
+        printf "%-12s %-46s %-35s\n" "ai-bench-skel" "Benchmark token savings across line thresholds" "ai-bench-skel main.py"
         echo -e "\n\033[0;33mTip: Type 'ai-help <command>' for detailed usage (e.g., 'ai-help commit').\033[0m"
         return 0
     fi
@@ -456,6 +466,7 @@ ai-help() {
         perf)      _ai_help_detail "ai-perf" "Toggle real-time execution timing, token generation speed (tok/s), and prompt evaluation metrics on or off." "ai-perf [on|off]" "ai-perf off" "Command argument (optional)" ;;
         compact)   _ai_help_detail "ai-compact" "Toggle automatic prompt context minification (AST skeletonization + whitespace/comment stripping) on or off." "ai-compact [on|off]" "ai-compact on" "Command argument (optional)" ;;
         skeleton) _ai_help_detail "ai-skeleton" "Run Python code through the local AST skeletonizer to preview stripped function bodies without sending a request to Ollama." "ai-skeleton [file] OR cat <file> | ai-skeleton" "ai-skeleton main.py" "File argument or Piped Python code" ;;
+        bench-skel) _ai_help_detail "ai-bench-skel" "Runs code through AST skeletonizer across multiple threshold steps (0, 5, 10, 20...) and measures token reduction." "ai-bench-skel [file] OR cat <file> | ai-bench-skel" "ai-bench-skel src/app.py" "File or Piped code" ;;
         *)         echo "Unknown command: 'ai-$cmd'. Run 'ai-help' to list all commands." ;;
     esac
 }
