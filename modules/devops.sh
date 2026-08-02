@@ -54,3 +54,19 @@ ai-sec() {
 ai-env() {
     _ollama_exec "Analyze this file/code and extract all environment variable references into a clean .env.example file with place-holder values. Output raw file content only." "$1"
 }
+
+# @cmd: ai-log
+# @desc: Parse and diagnose application logs and suggest potential root causes
+# @usage: cat <file> | ai-log
+# @example: journalctl -u nginx -n 100 | ai-log or cat app.log | ai-log
+ai-log() {
+    _ollama_exec "Analyze the following log lines. Group duplicate/similar errors, highlight critical anomalies, and suggest potential root causes." "$1"
+}
+
+# @cmd: ai-struct
+# @desc: Generate a clean ASCII folder/file tree structure for a project matching the description
+# @usage: ai-struct <project-description>
+# @example: ai-struct "FastAPI microservice with Docker, PostgreSQL, Alembic migrations, and pytest"
+ai-struct() {
+    _ollama_exec "Generate a clean ASCII folder/file tree structure for a project matching the description. Output ONLY the tree structure inside code blocks." "$1"
+}

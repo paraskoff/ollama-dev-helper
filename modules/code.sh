@@ -40,7 +40,27 @@ ai-test() {
 }
 
 # ==============================================================================
-# Documentation & Translation
+# Code Optimization & Benchmarking
+# ==============================================================================
+
+# @cmd: ai-bench
+# @desc: Generate benchmark script/test to measure its execution time, memory usage, and performance under load
+# @usage: cat <file> | ai-bench
+# @example: cat heavy_algo.py | ai-bench
+ai-bench() {
+    _ollama_exec "Generate a standalone benchmark script/test for this code to measure its execution time, memory usage, and performance under load." "$1"
+}
+
+# @cmd: ai-deps
+# @desc: Audit dependency file for potential security vulnerabilities, bloated/redundant libraries, and modern alternatives
+# @usage: cat <file> | ai-deps
+# @example: cat requirements.txt | ai-deps
+ai-deps() {
+    _ollama_exec "Audit this dependency file. Identify potential security vulnerabilities, bloated/redundant libraries, and modern alternatives." "$1"
+}
+
+# ==============================================================================
+# Documentation, Translation & Knowledge Management
 # ==============================================================================
 
 # @cmd: ai-doc
@@ -69,4 +89,20 @@ ai-convert() {
         return 1
     fi
     _ollama_exec "Translate this code into clean, idiomatic $1 code. Preserve exact business logic and return code only."
+}
+
+# @cmd: ai-meta
+# @desc: Generate Markdown YAML frontmatter & tags
+# @usage: cat <file> | ai-meta
+# @example: cat note.md | ai-meta
+ai-meta() {
+    _ollama_exec "Extract key concepts from this text and generate YAML frontmatter with tags (lowercase, hyphenated), summary, and related topics. Return ONLY the YAML block." "$1"
+}
+
+# @cmd: ai-proof
+# @desc: Proofread technical docs and comments for grammar, typos, and technical clarity
+# @usage: cat <file> | ai-proof
+# @example: cat docs/api.md | ai-proof
+ai-proof() {
+    _ollama_exec "Proofread this text for grammar, typos, and technical clarity. Maintain original technical terms and output the corrected version directly." "$1"
 }
