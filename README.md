@@ -41,6 +41,7 @@ source ~/.bashrc
 | ai-help | `ai-help [ai-sec\|sec]` | Command argument |
 | ai-perf | `ai-perf [on\|off]` | Command argument |
 | ai-compact | `ai-compact [on\|off]` | Command argument |
+| ai-skeleton| `ai-skeleton main.py` | Command argument |
 
 ## How to Switch Models on the Fly
 
@@ -100,6 +101,58 @@ cat main.py | ai-review
 ai-compact on
 cat main.py | ai-review
 # Output: [Perf] 1.85s total | Gen: 90 tok | Prompt: 340 tok (50% context reduction)
+```
+
+
+## Dependency-free Python AST Skeletonizer
+
+### How It Works Under the Hood
+When you pipe commands:
+1. `ai-skeleton` parses the Python AST and strips method bodies.
+2. The skeletonized interface streams into the next `ai-*` command as `stdin`.
+3. The downstream command passes that slimmed-down context directly to Ollama.
+
+### Practical Chaining Recipes
+#### 1. High-Level Architecture Review
+Review code structure, class design, or potential anti-patterns without flooding the context window with implementation details:
+```bash
+ai-skeleton main.py | ai-review
+```
+
+#### 2. Multi-File Codebase Mapping
+Concatenate multiple Python files into a single skeleton before asking for an architectural breakdown:
+```bash
+cat models.py services.py controllers.py | ai-skeleton | ai-explain
+```
+
+#### 3. Generate Unit Test Stubs
+Ask Ollama to write test suites based purely on function signatures, type hints, and docstrings:
+```bash
+ai-skeleton api/routes.py | ai-test
+```
+
+#### 4. Custom Targeted Prompts (`ai-ask`)
+Pass a skeletonized structure along with an explicit targeted question:
+```bash
+ai-skeleton database.py | ai-ask "Suggest how to refactor this class hierarchy to use the Repository pattern."
+```
+
+#### 5. Documenting Interfaces (`ai-doc`)
+Ensure public APIs have thorough docstrings without distracting the LLM with method internals:
+```bash
+ai-skeleton legacy_service.py | ai-doc
+```
+
+#### Pro Tip: Bypassing `AI_COMPACT`
+Explicitly chaining `ai-skeleton | ai-...` gives you granular control. Even if you turn auto-compaction off globally (`ai-compact off`), manually piping `ai-skeleton` lets you selectively skeletonize large files only when you need to:
+```bash
+ai-compact off
+
+# Full code sent (detailed review)
+cat small_utils.py | ai-review
+
+# Explicitly skeletonized (lightweight review)
+ai-skeleton huge_monolith.py | ai-review
 ```
 
 

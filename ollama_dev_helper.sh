@@ -49,16 +49,37 @@ ai-compact() {
     fi
 }
 
-# Internal text minifier: strips blank lines, pure comment lines, and trailing spaces
+# Preview skeletonized Python code without sending to Ollama
+ai-skeleton() {
+    if [ -t 0 ] && [ -n "$1" ]; then
+        python3 "./py_skeleton.py" < "$1"
+    else
+        python3 "./py_skeleton.py"
+    fi
+}
+
+# Internal text minifier: AST skeletonization + whitespace/comment stripping
 _compact_text() {
+    local input
+    input=$(cat)
+
     if [ "$AI_COMPACT" = "true" ]; then
-        sed -E '
+        if [ -f "./py_skeleton.py" ]; then
+            local skeletonized
+            skeletonized=$(printf '%s\n' "$input" | python3 "./py_skeleton.py" 2>/dev/null)
+            if [ -n "$skeletonized" ]; then
+                input="$skeletonized"
+            fi
+        fi
+
+        printf '%s\n' "$input" | sed -E '
             /^\s*$/d;                 # Delete empty/whitespace-only lines
             /^\s*(#|\/\/|\/\*|\*)/d;  # Delete lines that are purely comments (#, //, /*, *)
             s/[[:space:]]+$//;        # Strip trailing whitespace
         '
     else
-        cat # Pass through unmodified if compaction is disabled
+        # Pass through unmodified if compaction is disabled
+        printf '%s\n' "$input"
     fi
 }
 
@@ -104,7 +125,8 @@ _ollama_exec() {
           }
         }" | while read -r line; do
             echo "$line" >> "$tmp_file"
-            echo -n "$line" | jq -r '.response // empty' 2>/dev/null
+            # FIX: Changed 'jq -r' to 'jq -j' to prevent adding newlines after each streamed token
+            echo -n "$line" | jq -j '.response // empty' 2>/dev/null
         done
         echo "" # Newline after output completion
 
@@ -400,6 +422,7 @@ ai-help() {
         printf "%-12s %-46s %-35s\n" "ai-ask" "Send arbitrary raw prompt directly to model" "ai-ask \"Explain async/await\""
         printf "%-12s %-46s %-35s\n" "ai-perf" "Toggle performance metrics & execution timing" "ai-perf [on|off]"
         printf "%-12s %-46s %-35s\n" "ai-compact" "Toggle automatic prompt context minification" "ai-compact [on|off]"
+        printf "%-12s %-46s %-35s\n" "ai-skeleton" "Preview AST skeletonized Python code" "cat main.py | ai-skeleton"
         echo -e "\n\033[0;33mTip: Type 'ai-help <command>' for detailed usage (e.g., 'ai-help commit').\033[0m"
         return 0
     fi
@@ -432,6 +455,7 @@ ai-help() {
         ask)       _ai_help_detail "ai-ask" "Send a direct, raw prompt to the active Ollama model." "ai-ask <prompt>" "ai-ask \"Explain async/await in Python\"" "Direct Argument string" ;;
         perf)      _ai_help_detail "ai-perf" "Toggle real-time execution timing, token generation speed (tok/s), and prompt evaluation metrics on or off." "ai-perf [on|off]" "ai-perf off" "Command argument (optional)" ;;
         compact)   _ai_help_detail "ai-compact" "Toggle automatic prompt context minification (AST skeletonization + whitespace/comment stripping) on or off." "ai-compact [on|off]" "ai-compact on" "Command argument (optional)" ;;
+        skeleton) _ai_help_detail "ai-skeleton" "Run Python code through the local AST skeletonizer to preview stripped function bodies without sending a request to Ollama." "ai-skeleton [file] OR cat <file> | ai-skeleton" "ai-skeleton main.py" "File argument or Piped Python code" ;;
         *)         echo "Unknown command: 'ai-$cmd'. Run 'ai-help' to list all commands." ;;
     esac
 }
