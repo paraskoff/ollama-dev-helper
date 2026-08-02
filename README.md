@@ -28,6 +28,16 @@ source ~/.bashrc
 | ai-regex | `ai-regex "match valid email addresses"` | Direct Argument string | 
 | ai-json | `cat config.json \| ai-json` | Piped JSON/YAML payload
 | ai-ask | `ai-ask "Explain difference between processes and threads"` | Direct Argument string |
+| ai-docker | `ai-docker "Python FastAPI app with PostgreSQL"` | Command argument | 
+| ai-cron | `ai-cron "every 15 minutes on weekdays"` | Command argument | 
+| ai-sec | `git diff \| ai-sec` | Piped code / text | 
+| ai-env | `cat src/config.py `| ai-env | Piped code |
+| ai-type | `cat data.json \| ai-type pydantic ` | Piped JSON (Optional arg: language) | 
+| ai-curl | `echo "curl https://api.site.com" \| ai-curl python` | Piped cURL string |
+| ai-mock | `ai-mock "users with id, email, created_at, role"` | Command argument |
+| ai-changelog | `ai-changelog` | Local git log output |
+| ai-convert | `cat legacy.js \| ai-convert go` | Piped code (Target language arg) |
+| ai-readme | `cat main.py \| ai-readme` | Piped code / workspace file |
 
 ## How to Switch Models on the Fly
 
