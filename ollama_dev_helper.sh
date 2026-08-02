@@ -148,3 +148,85 @@ ai-json() {
 ai-ask() {
     _ollama_exec "$*"
 }
+
+# ==============================================================================
+# DevOps & System Administration
+# ==============================================================================
+
+# Generate an optimized Dockerfile or docker-compose setup
+ai-docker() {
+    _ollama_exec "Generate a minimal, production-ready, multi-stage Dockerfile or docker-compose file for this project setup: '$*'. Output raw code only."
+}
+
+# Generate or explain cron expressions
+ai-cron() {
+    if [ -z "$1" ]; then
+        echo "Usage: ai-cron <description or expression>"
+        return 1
+    fi
+    _ollama_exec "If this is a natural language request, convert it to a valid crontab expression. If it is a crontab expression, explain its schedule: '$*'. Output concisely."
+}
+
+# Scan codebase or text for hardcoded API keys, passwords, or secrets
+ai-sec() {
+    _ollama_exec "Scan this code or text for hardcoded secrets, API tokens, passwords, or insecure permissions. List any findings in bullet points, or output 'NO SECRETS DETECTED'." "$1"
+}
+
+# Generate a sanitized .env.example file from code or configuration files
+ai-env() {
+    _ollama_exec "Analyze this file/code and extract all environment variable references into a clean .env.example file with place-holder values. Output raw file content only." "$1"
+}
+
+# ==============================================================================
+# Type Generation & Data Conversion
+# ==============================================================================
+
+# Convert raw JSON into TypeScript interfaces or Pydantic models
+ai-type() {
+    local target_lang="${1:-typescript}"
+    _ollama_exec "Convert this JSON structure into explicit ${target_lang} type definitions (interfaces or classes). Output code only."
+}
+
+# Convert cURL commands into clean Python/Node.js/Go code snippets
+ai-curl() {
+    local target_lang="${1:-python}"
+    _ollama_exec "Convert this cURL command into an idiomatic ${target_lang} HTTP request snippet using modern libraries. Output code only."
+}
+
+# Generate realistic mock JSON or CSV fixtures from a schema/description
+ai-mock() {
+    if [ -z "$1" ]; then
+        echo "Usage: ai-mock <description of desired mock data>"
+        return 1
+    fi
+    _ollama_exec "Generate a realistic mock JSON array (5-10 records) matching this specification: '$*'. Output valid formatted JSON only."
+}
+
+# ==============================================================================
+# Documentation & Translation
+# ==============================================================================
+
+# Generate release notes / changelog entries from git log history
+ai-changelog() {
+    local commits
+    commits=$(git log -n 15 --oneline)
+    if [ -z "$commits" ]; then
+        echo "Error: Not a git repository or no recent commits found."
+        return 1
+    fi
+    echo "$commits" | _ollama_exec "Group these recent git commits into a clean Markdown CHANGELOG categorized by Features, Fixes, and Maintenance."
+}
+
+# Translate code snippets from one programming language to another
+ai-convert() {
+    if [ -z "$1" ]; then
+        echo "Usage: cat code.js | ai-convert python"
+        return 1
+    fi
+    _ollama_exec "Translate this code into clean, idiomatic $1 code. Preserve exact business logic and return code only."
+}
+
+# Generate a clean Markdown README section for a module or script
+ai-readme() {
+    _ollama_exec "Generate a concise Markdown README.md outline for this project/code snippet including Overview, Installation, and Usage sections." "$1"
+}
