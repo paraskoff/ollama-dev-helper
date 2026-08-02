@@ -1,6 +1,6 @@
 # Ollama CLI Development Helper Library
 
-This is a modular, standalone shell library for [Ollama](https://github.com/ollama/ollama) containing 14 high-utility development helpers.
+This is a modular, standalone shell library for [Ollama](https://github.com/ollama/ollama) containing high-utility development helpers.
 
 It is designed around a central configuration variable (`OLLAMA_MODEL`), allowing you to switch models instantly across all functions or override the model per session.
 
