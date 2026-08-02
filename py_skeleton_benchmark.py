@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-AST Skeletonizer Threshold Benchmark Tool
-Measures token counts and context reduction across different function line thresholds.
+AST Skeletonizer Threshold Benchmark Tool with Visual Bar Charts
+Measures token counts and context reduction across different function line thresholds
+and renders ASCII/Unicode visualizations in the terminal.
 """
-import sys
-import os
-import json
 import argparse
-import urllib.request
+import json
+import os
+import sys
 import urllib.error
+import urllib.request
 
 try:
     from py_skeleton import skeletonize
@@ -35,21 +36,55 @@ def count_tokens_ollama(text: str, model: str) -> int:
         return len(text) // 4
 
 
+def make_bar(val: int, max_val: int, width: int = 20) -> str:
+    """Generates a Unicode horizontal fill bar."""
+    if max_val <= 0:
+        return "░" * width
+    fill = int(round(width * (val / float(max_val))))
+    fill = min(max(fill, 0), width)
+    return "█" * fill + "░" * (width - fill)
+
+
 def run_benchmark(code: str, thresholds: list[int], model: str):
     raw_lines = len(code.splitlines())
     raw_chars = len(code)
     raw_tokens = count_tokens_ollama(code, model)
 
-    print(f"\n\033[1;34m=== AST Threshold Benchmark ===\033[0m")
+    print("\n\033[1;34m=== AST Threshold Benchmark & Visualizer ===\033[0m")
     print(f"\033[1mActive Model:\033[0m {model}")
-    print(f"\033[1mRaw File Stats:\033[0m {raw_lines} lines | {raw_chars} chars | ~{raw_tokens} tokens\n")
+    print(
+        f"\033[1mRaw File Stats:\033[0m {raw_lines} lines | {raw_chars} chars | ~{raw_tokens} tokens\n"
+    )
 
-    printf_fmt = "%-12s %-12s %-12s %-14s %-12s\n"
-    print(printf_fmt % ("Threshold", "Lines Left", "Chars Left", "Token Count", "Token Savings"))
-    print("-" * 65)
+    header_fmt = "%-12s %-10s %-12s %-8s %-22s %-8s"
+    row_fmt = "%-12s %-10s %-12s %-8s \033[0;32m%-22s\033[0m \033[1;33m%-8s\033[0m"
 
-    # Always baseline raw un-skeletonized
-    print(printf_fmt % ("Raw (None)", str(raw_lines), str(raw_chars), str(raw_tokens), "0.0%"))
+    print(
+        header_fmt
+        % (
+            "Threshold",
+            "Lines Left",
+            "Chars Left",
+            "Tokens",
+            "Context Visual",
+            "Savings",
+        )
+    )
+    print("-" * 78)
+
+    # Baseline (Raw file)
+    raw_bar = make_bar(raw_tokens, raw_tokens)
+    print(
+        row_fmt
+        % (
+            "Raw (None)",
+            str(raw_lines),
+            str(raw_chars),
+            str(raw_tokens),
+            raw_bar,
+            "0.0%",
+        )
+    )
 
     for thresh in thresholds:
         skel_code = skeletonize(code, min_lines=thresh)
@@ -61,20 +96,26 @@ def run_benchmark(code: str, thresholds: list[int], model: str):
         if raw_tokens > 0:
             savings_pct = ((raw_tokens - s_tokens) / raw_tokens) * 100
 
+        bar_chart = make_bar(s_tokens, raw_tokens)
+
         print(
-            printf_fmt
+            row_fmt
             % (
                 f">= {thresh} lines",
                 str(s_lines),
                 str(s_chars),
                 str(s_tokens),
+                bar_chart,
                 f"{savings_pct:.1f}%",
             )
         )
+    print("\n")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Benchmark AST skeletonizer thresholds.")
+    parser = argparse.ArgumentParser(
+        description="Benchmark AST skeletonizer thresholds with visual charts."
+    )
     parser.add_argument("file", nargs="?", help="Path to Python file to benchmark")
     parser.add_argument(
         "--model",
@@ -95,8 +136,13 @@ if __name__ == "__main__":
         source = sys.stdin.read()
 
     if not source.strip():
-        print("Error: No source code provided via file argument or pipe.", file=sys.stderr)
+        print(
+            "Error: No source code provided via file argument or pipe.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
-    threshold_list = [int(x.strip()) for x in args.steps.split(",") if x.strip().isdigit()]
+    threshold_list = [
+        int(x.strip()) for x in args.steps.split(",") if x.strip().isdigit()
+    ]
     run_benchmark(source, sorted(threshold_list), args.model)
