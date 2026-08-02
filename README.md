@@ -38,6 +38,7 @@ source ~/.bashrc
 | ai-changelog | `ai-changelog` | Local git log output |
 | ai-convert | `cat legacy.js \| ai-convert go` | Piped code (Target language arg) |
 | ai-readme | `cat main.py \| ai-readme` | Piped code / workspace file |
+| ai-help | `ai-help ai-sec` or `ai-help sec` | Command argument |
 
 ## How to Switch Models on the Fly
 
