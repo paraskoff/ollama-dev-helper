@@ -7,7 +7,28 @@
 # Change default model here or override dynamically using 'ai-model <name>'
 export OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5-coder:1.5b}"
 
-# --- Internal Execution Engine ---
+# ==============================================================================
+# Performance Tracking & Execution Engine
+# ==============================================================================
+
+# Performance timing output toggle (default: true)
+export AI_SHOW_PERF="${AI_SHOW_PERF:-true}"
+
+# Toggle or view performance tracking mode
+ai-perf() {
+    if [ "$1" = "on" ] || [ "$1" = "true" ]; then
+        export AI_SHOW_PERF="true"
+        echo "Performance timing: ENABLED"
+    elif [ "$1" = "off" ] || [ "$1" = "false" ]; then
+        export AI_SHOW_PERF="false"
+        echo "Performance timing: DISABLED"
+    else
+        echo "Performance timing status: ${AI_SHOW_PERF}"
+        echo "Usage: ai-perf [on|off]"
+    fi
+}
+
+# Core runner with built-in token & execution metrics
 _ollama_exec() {
     local system_prompt="$1"
     local extra_arg="$2"
@@ -27,8 +48,74 @@ _ollama_exec() {
         full_prompt="${full_prompt}:\n\n${input_data}"
     fi
 
-    # Run Ollama streaming response directly to stdout
-    ollama run "$OLLAMA_MODEL" "$full_prompt"
+    local start_time
+    start_time=$(date +%s.%N 2>/dev/null || date +%s)
+
+    # Use HTTP API with streaming if jq is installed for exact metrics
+    if command -v jq >/dev/null 2>&1; then
+        local json_prompt
+        json_prompt=$(jq -n --arg p "$full_prompt" '$p')
+
+        local tmp_file
+        tmp_file=$(mktemp)
+
+        # Stream response while logging raw JSON to temporary file for metrics extraction
+        curl -s -N http://127.0.0.1:11434/api/generate -d "{
+          \"model\": \"${OLLAMA_MODEL}\",
+          \"prompt\": ${json_prompt},
+          \"stream\": true,
+          \"options\": {
+            \"num_ctx\": 2048,
+            \"num_thread\": 3
+          }
+        }" | while read -r line; do
+            echo "$line" >> "$tmp_file"
+            echo -n "$line" | jq -r '.response // empty' 2>/dev/null
+        done
+        echo "" # Newline after output completion
+
+        local end_time
+        end_time=$(date +%s.%N 2>/dev/null || date +%s)
+
+        if [ "$AI_SHOW_PERF" = "true" ]; then
+            local last_line
+            last_line=$(tail -n 1 "$tmp_file")
+
+            local eval_count eval_dur prompt_count prompt_dur
+            eval_count=$(echo "$last_line" | jq -r '.eval_count // 0')
+            eval_dur=$(echo "$last_line" | jq -r '.eval_duration // 0')
+            prompt_count=$(echo "$last_line" | jq -r '.prompt_eval_count // 0')
+            prompt_dur=$(echo "$last_line" | jq -r '.prompt_eval_duration // 0')
+
+            local wall_time
+            wall_time=$(awk "BEGIN {printf \"%.2f\", $end_time - $start_time}")
+
+            local gen_tps="0.00"
+            if [ "$eval_dur" -gt 0 ]; then
+                gen_tps=$(awk "BEGIN {printf \"%.2f\", ($eval_count / ($eval_dur / 1000000000))}")
+            fi
+
+            local prompt_tps="0.00"
+            if [ "$prompt_dur" -gt 0 ]; then
+                prompt_tps=$(awk "BEGIN {printf \"%.2f\", ($prompt_count / ($prompt_dur / 1000000000))}")
+            fi
+
+            echo -e "\033[0;36m[Perf] ${wall_time}s total | Gen: ${eval_count} tok (${gen_tps} tok/s) | Prompt: ${prompt_count} tok (${prompt_tps} tok/s)\033[0m"
+        fi
+
+        rm -f "$tmp_file"
+    else
+        # Fallback to standard CLI if jq is not present
+        ollama run "$OLLAMA_MODEL" "$full_prompt"
+        local end_time
+        end_time=$(date +%s.%N 2>/dev/null || date +%s)
+
+        if [ "$AI_SHOW_PERF" = "true" ]; then
+            local wall_time
+            wall_time=$(awk "BEGIN {printf \"%.2f\", $end_time - $start_time}")
+            echo -e "\033[0;36m[Perf] Completed in ${wall_time}s\033[0m"
+        fi
+    fi
 }
 
 # ==============================================================================
@@ -277,6 +364,7 @@ ai-help() {
         printf "%-12s %-46s %-35s\n" "ai-convert" "Translate code to another programming language" "cat script.js | ai-convert python"
         printf "%-12s %-46s %-35s\n" "ai-readme" "Generate structured Markdown README.md outline" "cat main.py | ai-readme"
         printf "%-12s %-46s %-35s\n" "ai-ask" "Send arbitrary raw prompt directly to model" "ai-ask \"Explain async/await\""
+        printf "%-12s %-46s %-35s\n" "ai-perf" "Toggle performance metrics & execution timing" "ai-perf [on|off]"
         echo -e "\n\033[0;33mTip: Type 'ai-help <command>' for detailed usage (e.g., 'ai-help commit').\033[0m"
         return 0
     fi
@@ -307,6 +395,7 @@ ai-help() {
         convert)   _ai_help_detail "ai-convert" "Translate code snippets from one programming language to another." "cat <file> | ai-convert <lang>" "cat legacy.js | ai-convert python" "Piped code + Target lang arg" ;;
         readme)    _ai_help_detail "ai-readme" "Generate a structured Markdown README.md outline for a file or directory." "cat <file> | ai-readme" "cat main.py | ai-readme" "Piped code or file" ;;
         ask)       _ai_help_detail "ai-ask" "Send a direct, raw prompt to the active Ollama model." "ai-ask <prompt>" "ai-ask \"Explain async/await in Python\"" "Direct Argument string" ;;
+        perf)      _ai_help_detail "ai-perf" "Toggle real-time execution timing, token generation speed (tok/s), and prompt evaluation metrics on or off." "ai-perf [on|off]" "ai-perf off" "Command argument (optional)" ;;
         *)         echo "Unknown command: 'ai-$cmd'. Run 'ai-help' to list all commands." ;;
     esac
 }
