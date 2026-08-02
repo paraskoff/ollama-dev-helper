@@ -28,18 +28,52 @@ ai-perf() {
     fi
 }
 
+# ==============================================================================
+# Context Compaction Settings & Filters
+# ==============================================================================
+
+# Enable/disable compaction filter (default: true)
+export AI_COMPACT="${AI_COMPACT:-true}"
+
+# Toggle context compaction on/off
+ai-compact() {
+    if [ "$1" = "on" ] || [ "$1" = "true" ]; then
+        export AI_COMPACT="true"
+        echo "Context compaction: ENABLED"
+    elif [ "$1" = "off" ] || [ "$1" = "false" ]; then
+        export AI_COMPACT="false"
+        echo "Context compaction: DISABLED"
+    else
+        echo "Context compaction status: ${AI_COMPACT}"
+        echo "Usage: ai-compact [on|off]"
+    fi
+}
+
+# Internal text minifier: strips blank lines, pure comment lines, and trailing spaces
+_compact_text() {
+    if [ "$AI_COMPACT" = "true" ]; then
+        sed -E '
+            /^\s*$/d;                 # Delete empty/whitespace-only lines
+            /^\s*(#|\/\/|\/\*|\*)/d;  # Delete lines that are purely comments (#, //, /*, *)
+            s/[[:space:]]+$//;        # Strip trailing whitespace
+        '
+    else
+        cat # Pass through unmodified if compaction is disabled
+    fi
+}
+
 # Core runner with built-in token & execution metrics
 _ollama_exec() {
     local system_prompt="$1"
     local extra_arg="$2"
     local input_data=""
 
-    # Read from standard input if data is piped
+    # Read from standard input and compact if enabled
     if [ ! -t 0 ]; then
-        input_data=$(cat)
+        input_data=$(cat | _compact_text)
     fi
 
-    # Construct the query payload
+    # Construct prompt with compacted context
     local full_prompt="${system_prompt}"
     if [ -n "$extra_arg" ]; then
         full_prompt="${full_prompt} [Context: ${extra_arg}]"
@@ -365,6 +399,7 @@ ai-help() {
         printf "%-12s %-46s %-35s\n" "ai-readme" "Generate structured Markdown README.md outline" "cat main.py | ai-readme"
         printf "%-12s %-46s %-35s\n" "ai-ask" "Send arbitrary raw prompt directly to model" "ai-ask \"Explain async/await\""
         printf "%-12s %-46s %-35s\n" "ai-perf" "Toggle performance metrics & execution timing" "ai-perf [on|off]"
+        printf "%-12s %-46s %-35s\n" "ai-compact" "Toggle automatic prompt context minification" "ai-compact [on|off]"
         echo -e "\n\033[0;33mTip: Type 'ai-help <command>' for detailed usage (e.g., 'ai-help commit').\033[0m"
         return 0
     fi
@@ -396,6 +431,7 @@ ai-help() {
         readme)    _ai_help_detail "ai-readme" "Generate a structured Markdown README.md outline for a file or directory." "cat <file> | ai-readme" "cat main.py | ai-readme" "Piped code or file" ;;
         ask)       _ai_help_detail "ai-ask" "Send a direct, raw prompt to the active Ollama model." "ai-ask <prompt>" "ai-ask \"Explain async/await in Python\"" "Direct Argument string" ;;
         perf)      _ai_help_detail "ai-perf" "Toggle real-time execution timing, token generation speed (tok/s), and prompt evaluation metrics on or off." "ai-perf [on|off]" "ai-perf off" "Command argument (optional)" ;;
+        compact)   _ai_help_detail "ai-compact" "Toggle automatic prompt context minification (AST skeletonization + whitespace/comment stripping) on or off." "ai-compact [on|off]" "ai-compact on" "Command argument (optional)" ;;
         *)         echo "Unknown command: 'ai-$cmd'. Run 'ai-help' to list all commands." ;;
     esac
 }
