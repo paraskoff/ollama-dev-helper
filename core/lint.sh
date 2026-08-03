@@ -98,6 +98,7 @@ _lint_docstrings() {
 # @cmd: ai-lint
 # @desc: Lint module and core files for properly formatted docstrings
 # @usage: ai-lint
+# @example: ai-lint
 ai-lint() {
     _lint_docstrings
 }

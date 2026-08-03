@@ -4,6 +4,7 @@
 # @cmd: ai-help
 # @desc: Display overview or detail help for registered CLI commands
 # @usage: ai-help [command_name]
+# @example: ai-help OR ai-help lint OR ai-help ai-lint
 ai-help() {
     local target="$1"
 
@@ -192,6 +193,7 @@ _generate_markdown() {
 # @cmd: ai-cheatsheet
 # @desc: Generate a Markdown cheat sheet for all commands across core and modules
 # @usage: ai-cheatsheet [--save]
+# @example: ai-cheatsheet > changelog.txt
 ai-cheatsheet() {
     local output_file="${LLAMALIAS_DIR}/CHEATSHEET.md"
 

@@ -10,6 +10,7 @@
 # @cmd: ai-commit
 # @desc: Generate a Conventional Commit message string based on currently staged git changes
 # @usage: ai-commit
+# @example: git add . && ai-commit
 ai-commit() {
     local diff
     diff=$(git diff --cached)
@@ -23,6 +24,7 @@ ai-commit() {
 # @cmd: ai-ignore
 # @desc: Generate a complete .gitignore file populated for specified technologies
 # @usage: ai-ignore <tech1> <tech2>...
+# @example: ai-ignore python docker vscode
 ai-ignore() {
     if [ -z "$1" ]; then
         echo "Usage: ai-ignore <technologies...>"
@@ -39,6 +41,7 @@ ai-ignore() {
 # @cmd: ai-changelog
 # @desc: Aggregate recent git commits into a clean Markdown CHANGELOG
 # @usage: ai-changelog
+# @example: ai-changelog
 ai-changelog() {
     local commits
     commits=$(git log -n 15 --oneline)
@@ -52,6 +55,7 @@ ai-changelog() {
 # @cmd: ai-readme
 # @desc: Generate a structured Markdown README.md outline for a file or directory
 # @usage: cat <file> | ai-readme
+# @example: cat main.py | ai-readme
 ai-readme() {
     _ollama_exec "Generate a concise Markdown README.md outline for this project/code snippet including Overview, Installation, and Usage sections." "$1"
 }

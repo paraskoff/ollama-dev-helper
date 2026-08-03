@@ -126,6 +126,7 @@ _ollama_exec() {
 # @cmd: ai-model
 # @desc: View currently active model or switch to a new local model dynamically across all helpers
 # @usage: ai-model [model_name]
+# @example: ai-model qwen2.5-coder:1.5b
 ai-model() {
     if [ -z "$1" ]; then
         echo "Active Ollama Model: ${OLLAMA_MODEL}"
@@ -140,6 +141,7 @@ ai-model() {
 # @cmd: ai-status
 # @desc: Display active helper configuration, Ollama API endpoint, and loaded runners
 # @usage: ai-status
+# @example: ai-status
 ai-status() {
     echo "=== Active Configuration ==="
     echo "Model: ${OLLAMA_MODEL}"
@@ -156,6 +158,7 @@ ai-status() {
 # @cmd: ai-perf
 # @desc: Toggle real-time execution timing, token generation speed (tok/s), and prompt evaluation metrics on or off
 # @usage: ai-perf [on|off]
+# @example: ai-perf off
 ai-perf() {
     if [ "$1" = "on" ] || [ "$1" = "true" ]; then
         export AI_SHOW_PERF="true"
@@ -176,6 +179,7 @@ ai-perf() {
 # @cmd: ai-compact
 # @desc: Toggle automatic prompt context minification (AST skeletonization + whitespace/comment stripping) on or off
 # @usage: ai-compact [on|off]
+# @example: ai-compact on
 ai-compact() {
     if [ "$1" = "on" ] || [ "$1" = "true" ]; then
         export AI_COMPACT="true"
@@ -196,6 +200,7 @@ ai-compact() {
 # @cmd: ai-ask
 # @desc: Send a direct, raw prompt to the active Ollama model
 # @usage: ai-ask <prompt>
+# @example: ai-ask "Explain async/await in Python"
 ai-ask() {
     _ollama_exec "$*"
 }
