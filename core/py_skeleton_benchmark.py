@@ -20,7 +20,8 @@ except ImportError:
 
 def count_tokens_ollama(text: str, model: str) -> int:
     """Queries Ollama local REST API for exact token count."""
-    url = "http://127.0.0.1:11434/api/tokenize"
+    ollama_host = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+    url = f"{ollama_host}/api/tokenize"
     payload = json.dumps({"model": model, "prompt": text}).encode("utf-8")
     req = urllib.request.Request(
         url, data=payload, headers={"Content-Type": "application/json"}

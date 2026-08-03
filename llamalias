@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+# Define base directory
+export LLAMALIAS_DIR="$(dirname ${BASH_SOURCE[0]})"
+
+# 1. Load Configuration
+if [[ -f "${LLAMALIAS_DIR}/config/settings.sh" ]]; then
+    source "${LLAMALIAS_DIR}/config/settings.sh"
+fi
+
+# 2. Load Core Utilities
+for core_file in "${LLAMALIAS_DIR}"/core/*.sh; do
+    [[ -f "$core_file" ]] && source "$core_file"
+done
+
+# 3. Load All Feature Modules
+for module_file in "${LLAMALIAS_DIR}"/modules/*.sh; do
+    [[ -f "$module_file" ]] && source "$module_file"
+done
