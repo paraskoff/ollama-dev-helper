@@ -148,3 +148,54 @@ ai-status() {
     echo "=== Loaded Runners (ps) ==="
     ollama ps
 }
+
+# ==============================================================================
+# Performance Tracking & Execution Engine
+# ==============================================================================
+
+# @cmd: ai-perf
+# @desc: Toggle real-time execution timing, token generation speed (tok/s), and prompt evaluation metrics on or off
+# @usage: ai-perf [on|off]
+ai-perf() {
+    if [ "$1" = "on" ] || [ "$1" = "true" ]; then
+        export AI_SHOW_PERF="true"
+        echo "Performance timing: ENABLED"
+    elif [ "$1" = "off" ] || [ "$1" = "false" ]; then
+        export AI_SHOW_PERF="false"
+        echo "Performance timing: DISABLED"
+    else
+        echo "Performance timing status: ${AI_SHOW_PERF}"
+        echo "Usage: ai-perf [on|off]"
+    fi
+}
+
+# ==============================================================================
+# Context Compaction Settings & Filters
+# ==============================================================================
+
+# @cmd: ai-compact
+# @desc: Toggle automatic prompt context minification (AST skeletonization + whitespace/comment stripping) on or off
+# @usage: ai-compact [on|off]
+ai-compact() {
+    if [ "$1" = "on" ] || [ "$1" = "true" ]; then
+        export AI_COMPACT="true"
+        echo "Context compaction: ENABLED"
+    elif [ "$1" = "off" ] || [ "$1" = "false" ]; then
+        export AI_COMPACT="false"
+        echo "Context compaction: DISABLED"
+    else
+        echo "Context compaction status: ${AI_COMPACT}"
+        echo "Usage: ai-compact [on|off]"
+    fi
+}
+
+# ==============================================================================
+# Utility & Reference Generators
+# ==============================================================================
+
+# @cmd: ai-ask
+# @desc: Send a direct, raw prompt to the active Ollama model
+# @usage: ai-ask <prompt>
+ai-ask() {
+    _ollama_exec "$*"
+}
