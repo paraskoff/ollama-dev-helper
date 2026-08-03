@@ -24,9 +24,13 @@ Auto-generated command documentation.
 | `ai-refactor` | Refactor code for modern best practices, improved readability, and efficiency | `cat <file> \| ai-refactor` |
 | `ai-fix` | Analyze build errors, tracebacks, or terminal logs and propose a direct fix | `<command> 2>&1 \| ai-fix` |
 | `ai-test` | Write unit tests covering happy paths and standard edge cases | `cat <file> \| ai-test` |
+| `ai-bench` | Generate benchmark script/test to measure its execution time, memory usage, and performance under load | `cat <file> \| ai-bench` |
+| `ai-deps` | Audit dependency file for potential security vulnerabilities, bloated/redundant libraries, and modern alternatives | `cat <file> \| ai-deps` |
 | `ai-doc` | Add Google-style docstrings and explicit type annotations to functions and classes | `cat <file> \| ai-doc` |
 | `ai-explain` | Explain complex code snippets, configuration files, or logs in plain language | `cat <file> \| ai-explain` |
 | `ai-convert` | Translate code snippets from one programming language to another | `cat <file> \| ai-convert <lang>` |
+| `ai-meta` | Generate Markdown YAML frontmatter & tags | `cat <file> \| ai-meta` |
+| `ai-proof` | Proofread technical docs and comments for grammar, typos, and technical clarity | `cat <file> \| ai-proof` |
 
 ## Data Models & Converters
 
@@ -48,6 +52,8 @@ Auto-generated command documentation.
 | `ai-cron` | Convert human-readable schedules to crontab syntax or explain existing cron lines | `ai-cron <schedule>` |
 | `ai-sec` | Scan code diffs or text for hardcoded API keys, passwords, and tokens | `cat <file> \| ai-sec` |
 | `ai-env` | Extract all referenced environment variables into a sanitized .env.example file | `cat <file> \| ai-env` |
+| `ai-log` | Parse and diagnose application logs and suggest potential root causes | `cat <file> \| ai-log` |
+| `ai-struct` | Generate a clean ASCII folder/file tree structure for a project matching the description | `ai-struct <project-description>` |
 
 ## Git & Repository Management
 
@@ -55,6 +61,8 @@ Auto-generated command documentation.
 | :--- | :--- | :--- |
 | `ai-commit` | Generate a Conventional Commit message string based on currently staged git changes | `ai-commit` |
 | `ai-ignore` | Generate a complete .gitignore file populated for specified technologies | `ai-ignore <tech1> <tech2>...` |
+| `ai-pr` | Generate a concise GitHub/GitLab Pull Request description from branch diff | `ai-pr [branch]` |
+| `ai-conflict` | Analyze and resolve Git merge conflicts | `cat <file> \| ai-conflict` |
 | `ai-changelog` | Aggregate recent git commits into a clean Markdown CHANGELOG | `ai-changelog` |
 | `ai-readme` | Generate a structured Markdown README.md outline for a file or directory | `cat <file> \| ai-readme` |
 
