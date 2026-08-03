@@ -193,6 +193,27 @@ ai-compact() {
     fi
 }
 
+# @cmd: ai-skeleton
+# @desc: Run Python code through the local AST skeletonizer to preview stripped function bodies without sending a request to Ollama
+# @usage: cat <file> | ai-skeleton [min_lines]
+# @example: cat main.py | ai-skeleton 15
+ai-skeleton() {
+    local min_lines="${1:-$AI_SKEL_MIN_LINES}"
+    python3 "${LLAMALIAS_DIR}/core/py_skeleton.py" --min-lines "$min_lines"
+}
+
+# @cmd: ai-skeleton-bench
+# @desc: Runs code through AST skeletonizer across multiple threshold steps (0, 5, 10, 20...) and measures token reduction
+# @usage: ai-skeleton-bench [file] OR cat <file> | ai-skeleton-bench
+# @example: ai-skeleton-bench src/app.py
+ai-skeleton-bench() {
+    if [ -t 0 ] && [ -n "$1" ]; then
+        python3 "${LLAMALIAS_DIR}/core/py_skeleton_benchmark.py" "$1" --model "$OLLAMA_MODEL"
+    else
+        python3 "${LLAMALIAS_DIR}/core/py_skeleton_benchmark.py" --model "$OLLAMA_MODEL"
+    fi
+}
+
 # ==============================================================================
 # Utility & Reference Generators
 # ==============================================================================
