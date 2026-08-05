@@ -398,6 +398,47 @@ ai-session-purge() {
     echo -e "\033[0;32m[Purge Complete]\033[0m Removed \033[1m${#files[@]}\033[0m saved session profile(s)."
 }
 
+# @cmd: ai-session-export
+# @desc: Export active session conversation history to a Markdown note
+# @usage: ai-session-export <file>
+# @example: ai-session-export
+ai-session-export() {
+    local target_file="$1"
+
+    _init_session_file
+
+    if [ "$(jq 'length' "$AI_SESSION_FILE")" -eq 0 ]; then
+        echo -e "\033[0;33m[Notice]\033[0m Active session memory is currently empty. Nothing to export."
+        return 1
+    fi
+
+    # Default output path if none provided (~/llamalias_session_YYYYMMDD_HHMMSS.md)
+    if [ -z "$target_file" ]; then
+        local timestamp
+        timestamp=$(date "+%Y%m%d_%H%M%S")
+        target_file="${HOME}/llamalias_session_${timestamp}.md"
+    fi
+
+    local model_name="${AI_MODEL:-mistral}"
+    local export_date
+    export_date=$(date "+%Y-%m-%d %H:%M:%S")
+
+    {
+        echo "# 🦙 Llamalias Session Log"
+        echo ""
+        echo "- **Date:** ${export_date}"
+        echo "- **Model:** \`${model_name}\`"
+        echo "- **Total Turns:** $(jq 'length / 2 | floor' "$AI_SESSION_FILE")"
+        echo ""
+        echo "---"
+        echo ""
+
+        jq -r '.[] | if .role == "user" then "### 👤 User\n\n" + .content + "\n" else "### 🤖 Assistant\n\n" + .content + "\n\n---\n" end' "$AI_SESSION_FILE"
+    } > "$target_file"
+
+    echo -e "\033[0;32m[Export Complete]\033[0m Session exported to \033[1m${target_file}\033[0m"
+}
+
 # @cmd: ai-session
 # @desc: Unified Session Manager Dispatcher (`ai-session`)
 # @usage: ai-session [save|load|list|ls|rm|del|clear|show|toggle|cap]
@@ -409,6 +450,7 @@ ai-session() {
         list|ls) ai-session-list ;;
         rm|del) shift; ai-session-rm "$@" ;;
         purge)  shift; ai-session-purge "$@" ;;
+        export) shift; ai-session-export "$@" ;;
         clear)  ai-session-clear ;;
         show)   ai-session-show ;;
         toggle) ai-session-toggle ;;
@@ -423,6 +465,7 @@ ai-session() {
             echo "  list | ls      List all saved sessions with turn counts"
             echo "  rm <name>      Delete a saved session profile"
             echo "  purge [-f]     Permanently delete ALL saved session files"
+            echo "  export [path]  Export active session context to a Markdown note"
             echo "  clear          Clear active in-memory session"
             echo "  show           Print active session conversation history"
             echo "  toggle         Enable/Disable automatic session sharing mode"

@@ -20,6 +20,8 @@ Auto-generated command documentation.
 | `ai-session-load` | Load a named session profile into active memory | `ai-session-load <sesion_name>` |
 | `ai-session-list` | List all saved named session profiles | `ai-session-list` |
 | `ai-session-rm` | Delete a saved named session profile | `ai-session-rm <session_name>` |
+| `ai-session-purge` | Purge all saved session files from ~/.llamalias/ | `ai-session-purge [-f\|--force]` |
+| `ai-session-export` | Export active session conversation history to a Markdown note | `ai-session-export <file>` |
 | `ai-session` | Unified Session Manager Dispatcher (`ai-session`) | `ai-session [save\|load\|list\|ls\|rm\|del\|clear\|show\|toggle\|cap]` |
 | `ai-session-clear` | Clear active session memory | `ai-session-clear` |
 | `ai-session-toggle` | Toggle persistent session mode on/off | `ai-session-toggle [on\|off]` |
