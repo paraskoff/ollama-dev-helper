@@ -362,6 +362,42 @@ ai-session-rm() {
     fi
 }
 
+# @cmd: ai-session-purge
+# @desc: Purge all saved session files from ~/.llamalias/
+# @usage: ai-session-purge [-f|--force]
+# @example: ai-session-purge -f
+ai-session-purge() {
+    _init_sessions_dir
+
+    # Check for existing .json session files
+    shopt -s nullglob
+    local files=("${AI_SESSIONS_DIR}"/*.json)
+    shopt -u nullglob
+
+    if [ ${#files[@]} -eq 0 ]; then
+        echo -e "\033[0;33m[Notice]\033[0m No saved sessions found in \`${AI_SESSIONS_DIR}\`."
+        return 0
+    fi
+
+    local force=false
+    if [ "$1" = "-f" ] || [ "$1" = "--force" ]; then
+        force=true
+    fi
+
+    # Interactive confirmation prompt
+    if [ "$force" = "false" ]; then
+        echo -ne "\033[0;31m[Warning]\033[0m This will permanently delete ALL \033[1m${#files[@]}\033[0m saved session profiles in \`${AI_SESSIONS_DIR}\`. Proceed? (y/N): "
+        read -r response
+        if [[ ! "$response" =~ ^[Yy]$ ]]; then
+            echo "Purge canceled."
+            return 0
+        fi
+    fi
+
+    rm -f "${AI_SESSIONS_DIR}"/*.json
+    echo -e "\033[0;32m[Purge Complete]\033[0m Removed \033[1m${#files[@]}\033[0m saved session profile(s)."
+}
+
 # @cmd: ai-session
 # @desc: Unified Session Manager Dispatcher (`ai-session`)
 # @usage: ai-session [save|load|list|ls|rm|del|clear|show|toggle|cap]
@@ -372,6 +408,7 @@ ai-session() {
         load)   shift; ai-session-load "$@" ;;
         list|ls) ai-session-list ;;
         rm|del) shift; ai-session-rm "$@" ;;
+        purge)  shift; ai-session-purge "$@" ;;
         clear)  ai-session-clear ;;
         show)   ai-session-show ;;
         toggle) ai-session-toggle ;;
@@ -385,6 +422,7 @@ ai-session() {
             echo "  load <name>    Load named session profile into active memory"
             echo "  list | ls      List all saved sessions with turn counts"
             echo "  rm <name>      Delete a saved session profile"
+            echo "  purge [-f]     Permanently delete ALL saved session files"
             echo "  clear          Clear active in-memory session"
             echo "  show           Print active session conversation history"
             echo "  toggle         Enable/Disable automatic session sharing mode"
