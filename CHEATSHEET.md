@@ -11,6 +11,7 @@ Auto-generated command documentation.
 | `ai-session-toggle` | Toggle persistent session mode on/off | `ai-session-toggle [on\|off]` |
 | `ai-session-show` | Show current session memory history | `ai-session-show` |
 | `ai-chat` | Multi-turn session-based interactive conversation | `ai-chat [--clear\|--show\|--toggle]` |
+| `ai-session-cap` | Dynamic command to change or view turn limits on the fly | `ai-session-cap <max-session-turns>` |
 | `ai-perf` | Toggle real-time execution timing, token generation speed (tok/s), and prompt evaluation metrics on or off | `ai-perf [on\|off]` |
 | `ai-compact` | Toggle automatic prompt context minification (AST skeletonization + whitespace/comment stripping) on or off | `ai-compact [on\|off]` |
 | `ai-skeleton` | Run Python code through the local AST skeletonizer to preview stripped function bodies without sending a request to Ollama | `cat <file> \| ai-skeleton [min_lines]` |

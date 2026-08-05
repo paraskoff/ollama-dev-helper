@@ -119,6 +119,25 @@ _print_ollama_perf() {
     echo -e "\033[0;36m[Perf] ${wall_time}s total | Gen: ${eval_count} tok (${gen_tps} tok/s) | Prompt: ${prompt_count} tok (${prompt_tps} tok/s)\033[0m"
 }
 
+# Slice session history to keep system prompt + last N messages
+_prune_ollama_session() {
+    [ ! -f "$AI_SESSION_FILE" ] && return
+
+    local max_messages=$(( ${AI_SESSION_MAX_TURNS:-5} * 2 ))
+
+    jq --argjson max "$max_messages" '
+        if length > $max then
+            if .[0].role == "system" then
+                [.[0]] + .[-($max - 1):]
+            else
+                .[-$max:]
+            end
+        else
+            .
+        end
+    ' "$AI_SESSION_FILE" > "${AI_SESSION_FILE}.tmp" && mv "${AI_SESSION_FILE}.tmp" "$AI_SESSION_FILE"
+}
+
 # Persist conversation turn to session history file
 _update_ollama_session() {
     local system_prompt="$1"
@@ -143,6 +162,9 @@ _update_ollama_session() {
             '. + [{"role": "user", "content": $user}, {"role": "assistant", "content": $assistant}]' \
             "$AI_SESSION_FILE" > "${AI_SESSION_FILE}.tmp" && mv "${AI_SESSION_FILE}.tmp" "$AI_SESSION_FILE"
     fi
+
+    # Prune context to prevent out-of-memory or window overflow
+    _prune_ollama_session
 }
 
 # Core runner with built-in token & execution metrics
@@ -261,7 +283,6 @@ ai-session-show() {
     fi
 }
 
-
 # @cmd: ai-chat
 # @desc: Multi-turn session-based interactive conversation
 # @usage: ai-chat [--clear|--show|--toggle]
@@ -287,6 +308,19 @@ ai-chat() {
             export AI_SESSION="$old_session"
             ;;
     esac
+}
+
+# @cmd: ai-session-cap
+# @desc: Dynamic command to change or view turn limits on the fly
+# @usage: ai-session-cap <max-session-turns>
+# @example: ai-session-cap 10
+ai-session-cap() {
+    if [ -n "$1" ]; then
+        export AI_SESSION_MAX_TURNS="$1"
+        echo -e "\033[0;32m[Session Cap Updated]\033[0m Sliding window set to last \033[1m${AI_SESSION_MAX_TURNS}\033[0m turns ($(( AI_SESSION_MAX_TURNS * 2 )) messages)."
+    else
+        echo -e "\033[0;36m[Session Cap]\033[0m Active window limit: \033[1m${AI_SESSION_MAX_TURNS}\033[0m turns ($(( AI_SESSION_MAX_TURNS * 2 )) messages)."
+    fi
 }
 
 # ==============================================================================

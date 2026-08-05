@@ -24,3 +24,7 @@ export AI_SKEL_MIN_LINES="${AI_SKEL_MIN_LINES:-10}"
 # Session & Memory Management Variables
 export AI_SESSION_FILE="${TMPDIR:-/tmp}/llamalias_session_$(whoami).json"
 export AI_SESSION="${AI_SESSION:-false}" # Default: off for isolated commands
+
+# Maximum number of interactive turns (1 turn = 1 User prompt + 1 Assistant response)
+# Default: 5 turns (10 total messages)
+export AI_SESSION_MAX_TURNS="${AI_SESSION_MAX_TURNS:-5}"
