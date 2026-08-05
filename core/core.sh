@@ -28,95 +28,186 @@ _compact_text() {
     fi
 }
 
+# Prepare and compact input content from stdin or file arguments
+_prepare_user_content() {
+    local user_arg="$1"
+    local stdin_input=""
+    [ ! -t 0 ] && stdin_input=$(cat)
+
+    local content=""
+    if [ -n "$user_arg" ] && [ -f "$user_arg" ]; then
+        content="File (${user_arg}):\n$(cat "$user_arg")"
+        [ -n "$stdin_input" ] && content="${content}\n\n${stdin_input}"
+    elif [ -n "$user_arg" ] && [ -n "$stdin_input" ]; then
+        content="Context: ${user_arg}\n\n${stdin_input}"
+    elif [ -n "$stdin_input" ]; then
+        content="$stdin_input"
+    else
+        content="$user_arg"
+    fi
+
+    if declare -f _compact_text >/dev/null; then
+        content=$(printf '%s\n' "$content" | _compact_text)
+    fi
+    printf '%s' "$content"
+}
+
+# Construct JSON payload for Ollama /api/chat
+_build_ollama_payload() {
+    local system_prompt="$1"
+    local user_content="$2"
+    local history_length
+    history_length=$(jq 'length' "$AI_SESSION_FILE" 2>/dev/null || echo 0)
+
+    if [ "$AI_SESSION" = "true" ] && [ "$history_length" -gt 0 ]; then
+        jq --arg user "$user_content" \
+           --arg model "$AI_MODEL" \
+           --argjson num_ctx "$AI_NUM_CTX" \
+           --argjson num_thread "$AI_NUM_THREAD" \
+           '{
+               model: $model,
+               stream: true,
+               options: { num_ctx: $num_ctx, num_thread: $num_thread },
+               messages: (. + [{"role": "user", "content": $user}])
+           }' "$AI_SESSION_FILE"
+    else
+        jq -n --arg sys "$system_prompt" \
+              --arg user "$user_content" \
+              --arg model "$AI_MODEL" \
+              --argjson num_ctx "$AI_NUM_CTX" \
+              --argjson num_thread "$AI_NUM_THREAD" \
+              '{
+                  model: $model,
+                  stream: true,
+                  options: { num_ctx: $num_ctx, num_thread: $num_thread },
+                  messages: [
+                      {"role": "system", "content": $sys},
+                      {"role": "user", "content": $user}
+                  ]
+              }'
+    fi
+}
+
+# Compute and output execution metrics
+_print_ollama_perf() {
+    local tmp_file="$1"
+    local start_time="$2"
+    local end_time="$3"
+
+    [ "$AI_SHOW_PERF" != "true" ] && return
+
+    local last_line
+    last_line=$(tail -n 1 "$tmp_file")
+
+    local eval_count eval_dur prompt_count prompt_dur
+    eval_count=$(echo "$last_line" | jq -r '.eval_count // 0')
+    eval_dur=$(echo "$last_line" | jq -r '.eval_duration // 0')
+    prompt_count=$(echo "$last_line" | jq -r '.prompt_eval_count // 0')
+    prompt_dur=$(echo "$last_line" | jq -r '.prompt_eval_duration // 0')
+
+    local wall_time
+    wall_time=$(awk "BEGIN {printf \"%.2f\", $end_time - $start_time}")
+
+    local gen_tps="0.00"
+    [ -n "$eval_dur" ] && [ "$eval_dur" -gt 0 ] && \
+        gen_tps=$(awk "BEGIN {printf \"%.2f\", ($eval_count / ($eval_dur / 1000000000))}")
+
+    local prompt_tps="0.00"
+    [ -n "$prompt_dur" ] && [ "$prompt_dur" -gt 0 ] && \
+        prompt_tps=$(awk "BEGIN {printf \"%.2f\", ($prompt_count / ($prompt_dur / 1000000000))}")
+
+    echo -e "\033[0;36m[Perf] ${wall_time}s total | Gen: ${eval_count} tok (${gen_tps} tok/s) | Prompt: ${prompt_count} tok (${prompt_tps} tok/s)\033[0m"
+}
+
+# Slice session history to keep system prompt + last N messages
+_prune_ollama_session() {
+    [ ! -f "$AI_SESSION_FILE" ] && return
+
+    local max_messages=$(( ${AI_SESSION_MAX_TURNS:-5} * 2 ))
+
+    jq --argjson max "$max_messages" '
+        if length > $max then
+            if .[0].role == "system" then
+                [.[0]] + .[-($max - 1):]
+            else
+                .[-$max:]
+            end
+        else
+            .
+        end
+    ' "$AI_SESSION_FILE" > "${AI_SESSION_FILE}.tmp" && mv "${AI_SESSION_FILE}.tmp" "$AI_SESSION_FILE"
+}
+
+# Persist conversation turn to session history file
+_update_ollama_session() {
+    local system_prompt="$1"
+    local user_content="$2"
+    local tmp_file="$3"
+
+    [ "$AI_SESSION" != "true" ] && return
+
+    local assistant_response
+    assistant_response=$(jq -r -s '[.[].message.content // ""] | join("")' "$tmp_file" 2>/dev/null)
+    [ -z "$assistant_response" ] && return
+
+    local history_length
+    history_length=$(jq 'length' "$AI_SESSION_FILE" 2>/dev/null || echo 0)
+
+    if [ "$history_length" -eq 0 ]; then
+        jq -n --arg sys "$system_prompt" --arg user "$user_content" --arg assistant "$assistant_response" \
+            '[{"role": "system", "content": $sys}, {"role": "user", "content": $user}, {"role": "assistant", "content": $assistant}]' \
+            > "${AI_SESSION_FILE}.tmp" && mv "${AI_SESSION_FILE}.tmp" "$AI_SESSION_FILE"
+    else
+        jq --arg user "$user_content" --arg assistant "$assistant_response" \
+            '. + [{"role": "user", "content": $user}, {"role": "assistant", "content": $assistant}]' \
+            "$AI_SESSION_FILE" > "${AI_SESSION_FILE}.tmp" && mv "${AI_SESSION_FILE}.tmp" "$AI_SESSION_FILE"
+    fi
+
+    # Prune context to prevent out-of-memory or window overflow
+    _prune_ollama_session
+}
+
 # Core runner with built-in token & execution metrics
 _ollama_exec() {
     local system_prompt="$1"
-    local extra_arg="$2"
-    local input_data=""
+    local user_arg="$2"
 
-    # Read from standard input and compact if enabled
-    if [ ! -t 0 ]; then
-        input_data=$(cat | _compact_text)
-    fi
+    _init_session_file
+    
+    local full_user_content
+    full_user_content=$(_prepare_user_content "$user_arg")
 
-    # Construct prompt with compacted context
-    local full_prompt="${system_prompt}"
-    if [ -n "$extra_arg" ]; then
-        full_prompt="${full_prompt} [Context: ${extra_arg}]"
-    fi
-    if [ -n "$input_data" ]; then
-        full_prompt="${full_prompt}:\n\n${input_data}"
-    fi
+    local payload
+    payload=$(_build_ollama_payload "$system_prompt" "$full_user_content")
 
-    local start_time
+    local start_time tmp_file
     start_time=$(date +%s.%N 2>/dev/null || date +%s)
+    tmp_file=$(mktemp)
 
-    # Use HTTP API with streaming if jq is installed for exact metrics
-    if command -v jq >/dev/null 2>&1; then
-        local json_prompt
-        json_prompt=$(jq -n --arg p "$full_prompt" '$p')
-
-        local tmp_file
-        tmp_file=$(mktemp)
-
-        # Stream response while logging raw JSON to temporary file for metrics extraction
-        curl -s -N ${OLLAMA_HOST}/api/generate -d "{
-          \"model\": \"${OLLAMA_MODEL}\",
-          \"prompt\": ${json_prompt},
-          \"stream\": true,
-          \"options\": {
-            \"num_ctx\": 2048,
-            \"num_thread\": 3
-          }
-        }" | while read -r line; do
+    # Stream HTTP response directly to terminal
+    curl -s -N -X POST "${OLLAMA_HOST}/api/chat" \
+        -H "Content-Type: application/json" \
+        -d "$payload" | while read -r line; do
             echo "$line" >> "$tmp_file"
-            # FIX: Changed 'jq -r' to 'jq -j' to prevent adding newlines after each streamed token
-            echo -n "$line" | jq -j '.response // empty' 2>/dev/null
+            echo -n "$line" | jq -j '.message.content // empty' 2>/dev/null
         done
-        echo "" # Newline after output completion
+    echo ""
 
-        local end_time
-        end_time=$(date +%s.%N 2>/dev/null || date +%s)
+    local end_time
+    end_time=$(date +%s.%N 2>/dev/null || date +%s)
 
-        if [ "$AI_SHOW_PERF" = "true" ]; then
-            local last_line
-            last_line=$(tail -n 1 "$tmp_file")
+    _print_ollama_perf "$tmp_file" "$start_time" "$end_time"
+    _update_ollama_session "$system_prompt" "$full_user_content" "$tmp_file"
 
-            local eval_count eval_dur prompt_count prompt_dur
-            eval_count=$(echo "$last_line" | jq -r '.eval_count // 0')
-            eval_dur=$(echo "$last_line" | jq -r '.eval_duration // 0')
-            prompt_count=$(echo "$last_line" | jq -r '.prompt_eval_count // 0')
-            prompt_dur=$(echo "$last_line" | jq -r '.prompt_eval_duration // 0')
+    rm -f "$tmp_file"
+}
 
-            local wall_time
-            wall_time=$(awk "BEGIN {printf \"%.2f\", $end_time - $start_time}")
-
-            local gen_tps="0.00"
-            if [ "$eval_dur" -gt 0 ]; then
-                gen_tps=$(awk "BEGIN {printf \"%.2f\", ($eval_count / ($eval_dur / 1000000000))}")
-            fi
-
-            local prompt_tps="0.00"
-            if [ "$prompt_dur" -gt 0 ]; then
-                prompt_tps=$(awk "BEGIN {printf \"%.2f\", ($prompt_count / ($prompt_dur / 1000000000))}")
-            fi
-
-            echo -e "\033[0;36m[Perf] ${wall_time}s total | Gen: ${eval_count} tok (${gen_tps} tok/s) | Prompt: ${prompt_count} tok (${prompt_tps} tok/s)\033[0m"
-        fi
-
-        rm -f "$tmp_file"
-    else
-        # Fallback to standard CLI if jq is not present
-        ollama run "$OLLAMA_MODEL" "$full_prompt"
-        local end_time
-        end_time=$(date +%s.%N 2>/dev/null || date +%s)
-
-        if [ "$AI_SHOW_PERF" = "true" ]; then
-            local wall_time
-            wall_time=$(awk "BEGIN {printf \"%.2f\", $end_time - $start_time}")
-            echo -e "\033[0;36m[Perf] Completed in ${wall_time}s\033[0m"
-        fi
-    fi
+# @cmd: ai-ask
+# @desc: Send a direct, raw prompt to the active Ollama model
+# @usage: ai-ask <prompt>
+# @example: ai-ask "Explain async/await in Python"
+ai-ask() {
+    _ollama_exec "$*"
 }
 
 # ==============================================================================
@@ -129,12 +220,12 @@ _ollama_exec() {
 # @example: ai-model qwen2.5-coder:1.5b
 ai-model() {
     if [ -z "$1" ]; then
-        echo "Active Ollama Model: ${OLLAMA_MODEL}"
+        echo "Active Ollama Model: ${AI_MODEL}"
         echo "Available local models:"
         ollama list
     else
-        export OLLAMA_MODEL="$1"
-        echo "Switched active AI model to: ${OLLAMA_MODEL}"
+        export AI_MODEL="$1"
+        echo "Switched active AI model to: ${AI_MODEL}"
     fi
 }
 
@@ -144,7 +235,7 @@ ai-model() {
 # @example: ai-status
 ai-status() {
     echo "=== Active Configuration ==="
-    echo "Model: ${OLLAMA_MODEL}"
+    echo "Model: ${AI_MODEL}"
     echo "Ollama Endpoint: ${OLLAMA_HOST}"
     echo ""
     echo "=== Loaded Runners (ps) ==="
@@ -152,7 +243,317 @@ ai-status() {
 }
 
 # ==============================================================================
-# Performance Tracking & Execution Engine
+# @category: Session Management
+# ==============================================================================
+
+# Initialize empty session file if missing
+_init_session_file() {
+    if [ ! -f "$AI_SESSION_FILE" ]; then
+        echo "[]" > "$AI_SESSION_FILE"
+    fi
+}
+
+# Helper to ensure sessions directory exists
+_init_sessions_dir() {
+    mkdir -p "$AI_SESSIONS_DIR"
+}
+
+# @cmd: ai-session-save
+# @desc: Save active session memory under a named profile
+# @usage: ai-session-save <session_name>
+# @example: ai-session-save write-unit-tests"
+ai-session-save() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: ai-session-save <session_name>"
+        return 1
+    fi
+
+    _init_sessions_dir
+    _init_session_file
+
+    if [ "$(jq 'length' "$AI_SESSION_FILE")" -eq 0 ]; then
+        echo -e "\033[0;33m[Warning]\033[0m Current session memory is empty. Nothing to save."
+        return 1
+    fi
+
+    local target_file="${AI_SESSIONS_DIR}/${name}.json"
+    cp "$AI_SESSION_FILE" "$target_file"
+    echo -e "\033[0;32m[Session Saved]\033[0m Saved active memory as \033[1m${name}\033[0m (\`${target_file}\`)"
+}
+
+# @cmd: ai-session-load
+# @desc: Load a named session profile into active memory
+# @usage: ai-session-load <sesion_name>
+# @example: ai-session-load write-unit-tests
+ai-session-load() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: ai-session-load <session_name>"
+        return 1
+    fi
+
+    local source_file="${AI_SESSIONS_DIR}/${name}.json"
+    if [ ! -f "$source_file" ]; then
+        echo -e "\033[0;31m[Error]\033[0m Saved session '\033[1m${name}\033[0m' not found in \`${AI_SESSIONS_DIR}\`."
+        return 1
+    fi
+
+    _init_session_file
+    cp "$source_file" "$AI_SESSION_FILE"
+    export AI_SESSION="true"
+
+    local turn_count
+    turn_count=$(jq 'length / 2 | floor' "$AI_SESSION_FILE")
+    echo -e "\033[0;32m[Session Loaded]\033[0m Loaded \033[1m${name}\033[0m (${turn_count} turns). Session mode is now \033[1mENABLED\033[0m."
+}
+
+# @cmd: ai-session-list
+# @desc: List all saved named session profiles
+# @usage: ai-session-list
+# @example: ai-session-list
+ai-session-list() {
+    _init_sessions_dir
+    
+    # Check for json files in directory
+    shopt -s nullglob
+    local files=("${AI_SESSIONS_DIR}"/*.json)
+    shopt -u nullglob
+
+    if [ ${#files[@]} -eq 0 ]; then
+        echo "No saved sessions found in \`${AI_SESSIONS_DIR}\`."
+        return 0
+    fi
+
+    echo -e "\033[1;34m=== Saved Llamalias Sessions ===\033[0m"
+    printf "%-50s %-12s %-20s\n" "Session Name" "Turns" "Last Modified"
+    echo "----------------------------------------------------------------------------------"
+
+    for file in "${files[@]}"; do
+        local sname
+        sname=$(basename "$file" .json)
+        local turns
+        turns=$(jq 'length / 2 | floor' "$file" 2>/dev/null || echo "0")
+        local mod_time
+        mod_time=$(date -r "$file" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+
+        printf "%-50s %-12s %-20s\n" "$sname" "$turns" "$mod_time"
+    done
+}
+
+# @cmd: ai-session-rm
+# @desc: Delete a saved named session profile
+# @usage: ai-session-rm <session_name>
+# @example: ai-session-rm write-unit-tests
+ai-session-rm() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: ai-session-rm <session_name>"
+        return 1
+    fi
+
+    local target_file="${AI_SESSIONS_DIR}/${name}.json"
+    if [ -f "$target_file" ]; then
+        rm -f "$target_file"
+        echo -e "\033[0;32m[Session Deleted]\033[0m Removed session '\033[1m${name}\033[0m'."
+    else
+        echo -e "\033[0;31m[Error]\033[0m Session '\033[1m${name}\033[0m' does not exist."
+        return 1
+    fi
+}
+
+# @cmd: ai-session-purge
+# @desc: Purge all saved session files from ~/.llamalias/
+# @usage: ai-session-purge [-f|--force]
+# @example: ai-session-purge -f
+ai-session-purge() {
+    _init_sessions_dir
+
+    # Check for existing .json session files
+    shopt -s nullglob
+    local files=("${AI_SESSIONS_DIR}"/*.json)
+    shopt -u nullglob
+
+    if [ ${#files[@]} -eq 0 ]; then
+        echo -e "\033[0;33m[Notice]\033[0m No saved sessions found in \`${AI_SESSIONS_DIR}\`."
+        return 0
+    fi
+
+    local force=false
+    if [ "$1" = "-f" ] || [ "$1" = "--force" ]; then
+        force=true
+    fi
+
+    # Interactive confirmation prompt
+    if [ "$force" = "false" ]; then
+        echo -ne "\033[0;31m[Warning]\033[0m This will permanently delete ALL \033[1m${#files[@]}\033[0m saved session profiles in \`${AI_SESSIONS_DIR}\`. Proceed? (y/N): "
+        read -r response
+        if [[ ! "$response" =~ ^[Yy]$ ]]; then
+            echo "Purge canceled."
+            return 0
+        fi
+    fi
+
+    rm -f "${AI_SESSIONS_DIR}"/*.json
+    echo -e "\033[0;32m[Purge Complete]\033[0m Removed \033[1m${#files[@]}\033[0m saved session profile(s)."
+}
+
+# @cmd: ai-session-export
+# @desc: Export active session conversation history to a Markdown note
+# @usage: ai-session-export <file>
+# @example: ai-session-export
+ai-session-export() {
+    local target_file="$1"
+
+    _init_session_file
+
+    if [ "$(jq 'length' "$AI_SESSION_FILE")" -eq 0 ]; then
+        echo -e "\033[0;33m[Notice]\033[0m Active session memory is currently empty. Nothing to export."
+        return 1
+    fi
+
+    # Default output path if none provided (~/llamalias_session_YYYYMMDD_HHMMSS.md)
+    if [ -z "$target_file" ]; then
+        local timestamp
+        timestamp=$(date "+%Y%m%d_%H%M%S")
+        target_file="${HOME}/llamalias_session_${timestamp}.md"
+    fi
+
+    local model_name="${AI_MODEL:-mistral}"
+    local export_date
+    export_date=$(date "+%Y-%m-%d %H:%M:%S")
+
+    {
+        echo "# 🦙 Llamalias Session Log"
+        echo ""
+        echo "- **Date:** ${export_date}"
+        echo "- **Model:** \`${model_name}\`"
+        echo "- **Total Turns:** $(jq 'length / 2 | floor' "$AI_SESSION_FILE")"
+        echo ""
+        echo "---"
+        echo ""
+
+        jq -r '.[] | if .role == "user" then "### 👤 User\n\n" + .content + "\n" else "### 🤖 Assistant\n\n" + .content + "\n\n---\n" end' "$AI_SESSION_FILE"
+    } > "$target_file"
+
+    echo -e "\033[0;32m[Export Complete]\033[0m Session exported to \033[1m${target_file}\033[0m"
+}
+
+# @cmd: ai-session
+# @desc: Unified Session Manager Dispatcher (`ai-session`)
+# @usage: ai-session [save|load|list|ls|rm|del|clear|show|toggle|cap]
+# @example: ai-session ls
+ai-session() {
+    case "$1" in
+        save)   shift; ai-session-save "$@" ;;
+        load)   shift; ai-session-load "$@" ;;
+        list|ls) ai-session-list ;;
+        rm|del) shift; ai-session-rm "$@" ;;
+        purge)  shift; ai-session-purge "$@" ;;
+        export) shift; ai-session-export "$@" ;;
+        clear)  ai-session-clear ;;
+        show)   ai-session-show ;;
+        toggle) ai-session-toggle ;;
+        cap)    shift; ai-session-cap "$@" ;;
+        *)
+            echo -e "\033[1m🦙 Llamalias Session Manager\033[0m"
+            echo "Usage: ai-session <command> [args]"
+            echo ""
+            echo "Commands:"
+            echo "  save <name>    Save active session memory to ${AI_SESSIONS_DIR}/<name>.json"
+            echo "  load <name>    Load named session profile into active memory"
+            echo "  list | ls      List all saved sessions with turn counts"
+            echo "  rm <name>      Delete a saved session profile"
+            echo "  purge [-f]     Permanently delete ALL saved session files"
+            echo "  export [path]  Export active session context to a Markdown note"
+            echo "  clear          Clear active in-memory session"
+            echo "  show           Print active session conversation history"
+            echo "  toggle         Enable/Disable automatic session sharing mode"
+            echo "  cap [n]        View or update max sliding window turn limit"
+            ;;
+    esac
+}
+
+# @cmd: ai-session-clear
+# @desc: Clear active session memory
+# @usage: ai-session-clear
+# @example: ai-session-clear
+ai-session-clear() {
+    echo "[]" > "$AI_SESSION_FILE"
+    echo -e "\033[0;32m[Session Memory Cleared]\033[0m"
+}
+
+# @cmd: ai-session-toggle
+# @desc: Toggle persistent session mode on/off
+# @usage: ai-session-toggle [on|off]
+# @example: ai-session-toggle on
+ai-session-toggle() {
+    if [ "$AI_SESSION" = "true" ]; then
+        export AI_SESSION="false"
+        echo -e "\033[0;33mSession Memory:\033[0m DISABLED (Commands run independently)"
+    else
+        export AI_SESSION="true"
+        _init_session_file
+        echo -e "\033[0;32mSession Memory:\033[0m ENABLED (Commands share previous context)"
+    fi
+}
+
+# @cmd: ai-session-show
+# @desc: Show current session memory history
+# @usage: ai-session-show
+# @example: ai-session-show
+ai-session-show() {
+    _init_session_file
+    if [ "$(jq 'length' "$AI_SESSION_FILE")" -eq 0 ]; then
+        echo "Session memory is currently empty."
+    else
+        echo -e "\033[1;34m=== Active Session History ===\033[0m"
+        jq -r '.[] | "\u001b[1m[" + .role + "]:\u001b[0m\n" + .content + "\n---"' "$AI_SESSION_FILE"
+    fi
+}
+
+# @cmd: ai-chat
+# @desc: Multi-turn session-based interactive conversation
+# @usage: ai-chat [--clear|--show|--toggle]
+# @example: ai-chat --show
+ai-chat() {
+    case "$1" in
+        --clear|-c)
+            ai-session-clear
+            ;;
+        --show|-s)
+            ai-session-show
+            ;;
+        --toggle|-t)
+            ai-session-toggle
+            ;;
+        *)
+            # Enable session mode for chat command
+            local old_session="$AI_SESSION"
+            export AI_SESSION="true"
+            
+            _ollama_exec "You are a helpful programming assistant in a multi-turn terminal session." "$*"
+            
+            export AI_SESSION="$old_session"
+            ;;
+    esac
+}
+
+# @cmd: ai-session-cap
+# @desc: Dynamic command to change or view turn limits on the fly
+# @usage: ai-session-cap <max-session-turns>
+# @example: ai-session-cap 10
+ai-session-cap() {
+    if [ -n "$1" ]; then
+        export AI_SESSION_MAX_TURNS="$1"
+        echo -e "\033[0;32m[Session Cap Updated]\033[0m Sliding window set to last \033[1m${AI_SESSION_MAX_TURNS}\033[0m turns ($(( AI_SESSION_MAX_TURNS * 2 )) messages)."
+    else
+        echo -e "\033[0;36m[Session Cap]\033[0m Active window limit: \033[1m${AI_SESSION_MAX_TURNS}\033[0m turns ($(( AI_SESSION_MAX_TURNS * 2 )) messages)."
+    fi
+}
+
+# ==============================================================================
+# @category: Performance Tracking & Execution Engine
 # ==============================================================================
 
 # @cmd: ai-perf
@@ -173,7 +574,7 @@ ai-perf() {
 }
 
 # ==============================================================================
-# Context Compaction Settings & Filters
+# @category: Context Compaction Settings & Filters
 # ==============================================================================
 
 # @cmd: ai-compact
@@ -208,20 +609,100 @@ ai-skeleton() {
 # @example: ai-skeleton-bench src/app.py
 ai-skeleton-bench() {
     if [ -t 0 ] && [ -n "$1" ]; then
-        python3 "${LLAMALIAS_DIR}/core/py_skeleton_benchmark.py" "$1" --model "$OLLAMA_MODEL"
+        python3 "${LLAMALIAS_DIR}/core/py_skeleton_benchmark.py" "$1" --model "$AI_MODEL"
     else
-        python3 "${LLAMALIAS_DIR}/core/py_skeleton_benchmark.py" --model "$OLLAMA_MODEL"
+        python3 "${LLAMALIAS_DIR}/core/py_skeleton_benchmark.py" --model "$AI_MODEL"
     fi
 }
 
 # ==============================================================================
-# Utility & Reference Generators
+# Terminal Prompt Indicator (PS1 Integration)
 # ==============================================================================
 
-# @cmd: ai-ask
-# @desc: Send a direct, raw prompt to the active Ollama model
-# @usage: ai-ask <prompt>
-# @example: ai-ask "Explain async/await in Python"
-ai-ask() {
-    _ollama_exec "$*"
+# Generates a dynamic prompt status badge with active model and session state
+_ai_ps1() {
+    # 1. Active Model Indicator
+    local model_name="${AI_MODEL:-mistral}"
+    
+    # Strip tag if desired (e.g., display 'mistral' instead of 'mistral:latest')
+    # model_name="${model_name%%:*}"
+
+    local model_badge="\033[0;36m🤖[${model_name}]\033[0m"
+
+    # 2. Session Indicator (if AI_SESSION is true)
+    local session_badge=""
+    if [ "$AI_SESSION" = "true" ]; then
+        local turns=0
+        if [ -f "$AI_SESSION_FILE" ]; then
+            turns=$(jq 'length / 2 | floor' "$AI_SESSION_FILE" 2>/dev/null || echo "0")
+        fi
+        session_badge="\033[1;35m🦙[${turns}t]\033[0m"
+    fi
+
+    # Print badges followed by a space
+    printf "${model_badge}${session_badge} "
 }
+
+# Safely prepends the prompt indicator to PS1 if not already present
+_enable_ai_ps1_hook() {
+    if [[ ! "$PS1" =~ _ai_ps1 ]]; then
+        export PS1="\$( _ai_ps1 )$PS1"
+    fi
+}
+
+# Register prompt hook upon sourcing
+_enable_ai_ps1_hook
+
+# ==============================================================================
+# Terminal Exit Hook (Auto-Save Active Session)
+# ==============================================================================
+
+_ai_session_exit_hook() {
+    # Check if session mode was active and history exists
+    if [ "$AI_SESSION" = "true" ] && [ -f "$AI_SESSION_FILE" ]; then
+        local msg_count
+        msg_count=$(jq 'length' "$AI_SESSION_FILE" 2>/dev/null || echo "0")
+
+        if [ "$msg_count" -gt 0 ]; then
+            _init_sessions_dir
+
+            # 1. Update primary 'autosave' profile (for easy one-command restoration)
+            cp "$AI_SESSION_FILE" "${AI_SESSIONS_DIR}/autosave.json"
+
+            # 2. Save a timestamped copy to prevent accidental overwrites over time
+            local timestamp
+            timestamp=$(date "+%Y%m%d_%H%M%S")
+            cp "$AI_SESSION_FILE" "${AI_SESSIONS_DIR}/autosave_${timestamp}.json"
+        fi
+    fi
+}
+
+# Register signal handler to execute when the shell process terminates
+trap _ai_session_exit_hook EXIT
+
+# ==============================================================================
+# Shell Startup Hook (Auto-Restore Latest Session)
+# ==============================================================================
+
+_ai_session_startup_hook() {
+    if [ "$AI_AUTO_RESTORE" = "true" ]; then
+        local autosave_file="${AI_SESSIONS_DIR:-$HOME/.llamalias}/autosave.json"
+
+        if [ -f "$autosave_file" ]; then
+            local msg_count
+            msg_count=$(jq 'length' "$autosave_file" 2>/dev/null || echo "0")
+
+            if [ "$msg_count" -gt 0 ]; then
+                _init_session_file
+                cp "$autosave_file" "$AI_SESSION_FILE"
+                export AI_SESSION="true"
+
+                local turns=$(( msg_count / 2 ))
+                echo -e "\033[0;32m[Llamalias Auto-Restored]\033[0m Loaded \033[1mautosave\033[0m session (\033[1m${turns}\033[0m turns active)."
+            fi
+        fi
+    fi
+}
+
+# Execute startup hook automatically when script is sourced
+_ai_session_startup_hook

@@ -23,10 +23,10 @@ ai-model llama3.2:3b
 
 **One-Off Command Override:**
 ```bash
-OLLAMA_MODEL="qwen2.5-coder:3b-instruct-q4_K_M" ai-commit
+AI_MODEL="qwen2.5-coder:3b-instruct-q4_K_M" ai-commit
 ```
 
-**Permanent Default**: Edit export `OLLAMA_MODEL="..."` at the top of `${LLAMALIAS_DIR}/config/settings.sh`.
+**Permanent Default**: Edit export `AI_MODEL="..."` at the top of `${LLAMALIAS_DIR}/config/settings.sh`.
 
 ## Token Performance Toggle
 
