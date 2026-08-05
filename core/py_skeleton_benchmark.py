@@ -120,7 +120,7 @@ if __name__ == "__main__":
     parser.add_argument("file", nargs="?", help="Path to Python file to benchmark")
     parser.add_argument(
         "--model",
-        default=os.getenv("OLLAMA_MODEL", "qwen2.5-coder:1.5b"),
+        default=os.getenv("AI_MODEL", "qwen2.5-coder:1.5b"),
         help="Ollama model name for tokenization",
     )
     parser.add_argument(

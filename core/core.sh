@@ -28,95 +28,156 @@ _compact_text() {
     fi
 }
 
+# Prepare and compact input content from stdin or file arguments
+_prepare_user_content() {
+    local user_arg="$1"
+    local stdin_input=""
+    [ ! -t 0 ] && stdin_input=$(cat)
+
+    local content=""
+    if [ -n "$user_arg" ] && [ -f "$user_arg" ]; then
+        content="File (${user_arg}):\n$(cat "$user_arg")"
+        [ -n "$stdin_input" ] && content="${content}\n\n${stdin_input}"
+    elif [ -n "$user_arg" ] && [ -n "$stdin_input" ]; then
+        content="Context: ${user_arg}\n\n${stdin_input}"
+    elif [ -n "$stdin_input" ]; then
+        content="$stdin_input"
+    else
+        content="$user_arg"
+    fi
+
+    if declare -f _compact_text >/dev/null; then
+        content=$(printf '%s\n' "$content" | _compact_text)
+    fi
+    printf '%s' "$content"
+}
+
+# Construct JSON payload for Ollama /api/chat
+_build_ollama_payload() {
+    local system_prompt="$1"
+    local user_content="$2"
+    local history_length
+    history_length=$(jq 'length' "$AI_SESSION_FILE" 2>/dev/null || echo 0)
+
+    if [ "$AI_SESSION" = "true" ] && [ "$history_length" -gt 0 ]; then
+        jq --arg user "$user_content" \
+           --arg model "$AI_MODEL" \
+           --argjson num_ctx "$AI_NUM_CTX" \
+           --argjson num_thread "$AI_NUM_THREAD" \
+           '{
+               model: $model,
+               stream: true,
+               options: { num_ctx: $num_ctx, num_thread: $num_thread },
+               messages: (. + [{"role": "user", "content": $user}])
+           }' "$AI_SESSION_FILE"
+    else
+        jq -n --arg sys "$system_prompt" \
+              --arg user "$user_content" \
+              --arg model "$AI_MODEL" \
+              --argjson num_ctx "$AI_NUM_CTX" \
+              --argjson num_thread "$AI_NUM_THREAD" \
+              '{
+                  model: $model,
+                  stream: true,
+                  options: { num_ctx: $num_ctx, num_thread: $num_thread },
+                  messages: [
+                      {"role": "system", "content": $sys},
+                      {"role": "user", "content": $user}
+                  ]
+              }'
+    fi
+}
+
+# Compute and output execution metrics
+_print_ollama_perf() {
+    local tmp_file="$1"
+    local start_time="$2"
+    local end_time="$3"
+
+    [ "$AI_SHOW_PERF" != "true" ] && return
+
+    local last_line
+    last_line=$(tail -n 1 "$tmp_file")
+
+    local eval_count eval_dur prompt_count prompt_dur
+    eval_count=$(echo "$last_line" | jq -r '.eval_count // 0')
+    eval_dur=$(echo "$last_line" | jq -r '.eval_duration // 0')
+    prompt_count=$(echo "$last_line" | jq -r '.prompt_eval_count // 0')
+    prompt_dur=$(echo "$last_line" | jq -r '.prompt_eval_duration // 0')
+
+    local wall_time
+    wall_time=$(awk "BEGIN {printf \"%.2f\", $end_time - $start_time}")
+
+    local gen_tps="0.00"
+    [ -n "$eval_dur" ] && [ "$eval_dur" -gt 0 ] && \
+        gen_tps=$(awk "BEGIN {printf \"%.2f\", ($eval_count / ($eval_dur / 1000000000))}")
+
+    local prompt_tps="0.00"
+    [ -n "$prompt_dur" ] && [ "$prompt_dur" -gt 0 ] && \
+        prompt_tps=$(awk "BEGIN {printf \"%.2f\", ($prompt_count / ($prompt_dur / 1000000000))}")
+
+    echo -e "\033[0;36m[Perf] ${wall_time}s total | Gen: ${eval_count} tok (${gen_tps} tok/s) | Prompt: ${prompt_count} tok (${prompt_tps} tok/s)\033[0m"
+}
+
+# Persist conversation turn to session history file
+_update_ollama_session() {
+    local system_prompt="$1"
+    local user_content="$2"
+    local tmp_file="$3"
+
+    [ "$AI_SESSION" != "true" ] && return
+
+    local assistant_response
+    assistant_response=$(jq -r -s '[.[].message.content // ""] | join("")' "$tmp_file" 2>/dev/null)
+    [ -z "$assistant_response" ] && return
+
+    local history_length
+    history_length=$(jq 'length' "$AI_SESSION_FILE" 2>/dev/null || echo 0)
+
+    if [ "$history_length" -eq 0 ]; then
+        jq -n --arg sys "$system_prompt" --arg user "$user_content" --arg assistant "$assistant_response" \
+            '[{"role": "system", "content": $sys}, {"role": "user", "content": $user}, {"role": "assistant", "content": $assistant}]' \
+            > "${AI_SESSION_FILE}.tmp" && mv "${AI_SESSION_FILE}.tmp" "$AI_SESSION_FILE"
+    else
+        jq --arg user "$user_content" --arg assistant "$assistant_response" \
+            '. + [{"role": "user", "content": $user}, {"role": "assistant", "content": $assistant}]' \
+            "$AI_SESSION_FILE" > "${AI_SESSION_FILE}.tmp" && mv "${AI_SESSION_FILE}.tmp" "$AI_SESSION_FILE"
+    fi
+}
+
 # Core runner with built-in token & execution metrics
 _ollama_exec() {
     local system_prompt="$1"
-    local extra_arg="$2"
-    local input_data=""
+    local user_arg="$2"
 
-    # Read from standard input and compact if enabled
-    if [ ! -t 0 ]; then
-        input_data=$(cat | _compact_text)
-    fi
+    _init_session_file
+    
+    local full_user_content
+    full_user_content=$(_prepare_user_content "$user_arg")
 
-    # Construct prompt with compacted context
-    local full_prompt="${system_prompt}"
-    if [ -n "$extra_arg" ]; then
-        full_prompt="${full_prompt} [Context: ${extra_arg}]"
-    fi
-    if [ -n "$input_data" ]; then
-        full_prompt="${full_prompt}:\n\n${input_data}"
-    fi
+    local payload
+    payload=$(_build_ollama_payload "$system_prompt" "$full_user_content")
 
-    local start_time
+    local start_time tmp_file
     start_time=$(date +%s.%N 2>/dev/null || date +%s)
+    tmp_file=$(mktemp)
 
-    # Use HTTP API with streaming if jq is installed for exact metrics
-    if command -v jq >/dev/null 2>&1; then
-        local json_prompt
-        json_prompt=$(jq -n --arg p "$full_prompt" '$p')
-
-        local tmp_file
-        tmp_file=$(mktemp)
-
-        # Stream response while logging raw JSON to temporary file for metrics extraction
-        curl -s -N ${OLLAMA_HOST}/api/generate -d "{
-          \"model\": \"${OLLAMA_MODEL}\",
-          \"prompt\": ${json_prompt},
-          \"stream\": true,
-          \"options\": {
-            \"num_ctx\": 2048,
-            \"num_thread\": 3
-          }
-        }" | while read -r line; do
+    # Stream HTTP response directly to terminal
+    curl -s -N -X POST "${OLLAMA_HOST}/api/chat" \
+        -H "Content-Type: application/json" \
+        -d "$payload" | while read -r line; do
             echo "$line" >> "$tmp_file"
-            # FIX: Changed 'jq -r' to 'jq -j' to prevent adding newlines after each streamed token
-            echo -n "$line" | jq -j '.response // empty' 2>/dev/null
+            echo -n "$line" | jq -j '.message.content // empty' 2>/dev/null
         done
-        echo "" # Newline after output completion
+    echo ""
 
-        local end_time
-        end_time=$(date +%s.%N 2>/dev/null || date +%s)
+    local end_time
+    end_time=$(date +%s.%N 2>/dev/null || date +%s)
 
-        if [ "$AI_SHOW_PERF" = "true" ]; then
-            local last_line
-            last_line=$(tail -n 1 "$tmp_file")
+    _print_ollama_perf "$tmp_file" "$start_time" "$end_time"
+    _update_ollama_session "$system_prompt" "$full_user_content" "$tmp_file"
 
-            local eval_count eval_dur prompt_count prompt_dur
-            eval_count=$(echo "$last_line" | jq -r '.eval_count // 0')
-            eval_dur=$(echo "$last_line" | jq -r '.eval_duration // 0')
-            prompt_count=$(echo "$last_line" | jq -r '.prompt_eval_count // 0')
-            prompt_dur=$(echo "$last_line" | jq -r '.prompt_eval_duration // 0')
-
-            local wall_time
-            wall_time=$(awk "BEGIN {printf \"%.2f\", $end_time - $start_time}")
-
-            local gen_tps="0.00"
-            if [ "$eval_dur" -gt 0 ]; then
-                gen_tps=$(awk "BEGIN {printf \"%.2f\", ($eval_count / ($eval_dur / 1000000000))}")
-            fi
-
-            local prompt_tps="0.00"
-            if [ "$prompt_dur" -gt 0 ]; then
-                prompt_tps=$(awk "BEGIN {printf \"%.2f\", ($prompt_count / ($prompt_dur / 1000000000))}")
-            fi
-
-            echo -e "\033[0;36m[Perf] ${wall_time}s total | Gen: ${eval_count} tok (${gen_tps} tok/s) | Prompt: ${prompt_count} tok (${prompt_tps} tok/s)\033[0m"
-        fi
-
-        rm -f "$tmp_file"
-    else
-        # Fallback to standard CLI if jq is not present
-        ollama run "$OLLAMA_MODEL" "$full_prompt"
-        local end_time
-        end_time=$(date +%s.%N 2>/dev/null || date +%s)
-
-        if [ "$AI_SHOW_PERF" = "true" ]; then
-            local wall_time
-            wall_time=$(awk "BEGIN {printf \"%.2f\", $end_time - $start_time}")
-            echo -e "\033[0;36m[Perf] Completed in ${wall_time}s\033[0m"
-        fi
-    fi
+    rm -f "$tmp_file"
 }
 
 # ==============================================================================
@@ -129,12 +190,12 @@ _ollama_exec() {
 # @example: ai-model qwen2.5-coder:1.5b
 ai-model() {
     if [ -z "$1" ]; then
-        echo "Active Ollama Model: ${OLLAMA_MODEL}"
+        echo "Active Ollama Model: ${AI_MODEL}"
         echo "Available local models:"
         ollama list
     else
-        export OLLAMA_MODEL="$1"
-        echo "Switched active AI model to: ${OLLAMA_MODEL}"
+        export AI_MODEL="$1"
+        echo "Switched active AI model to: ${AI_MODEL}"
     fi
 }
 
@@ -144,11 +205,88 @@ ai-model() {
 # @example: ai-status
 ai-status() {
     echo "=== Active Configuration ==="
-    echo "Model: ${OLLAMA_MODEL}"
+    echo "Model: ${AI_MODEL}"
     echo "Ollama Endpoint: ${OLLAMA_HOST}"
     echo ""
     echo "=== Loaded Runners (ps) ==="
     ollama ps
+}
+
+# ==============================================================================
+# Session Management
+# ==============================================================================
+
+# Initialize empty session file if missing
+_init_session_file() {
+    if [ ! -f "$AI_SESSION_FILE" ]; then
+        echo "[]" > "$AI_SESSION_FILE"
+    fi
+}
+
+# @cmd: ai-session-clear
+# @desc: Clear active session memory
+# @usage: ai-session-clear
+# @example: ai-session-clear
+ai-session-clear() {
+    echo "[]" > "$AI_SESSION_FILE"
+    echo -e "\033[0;32m[Session Memory Cleared]\033[0m"
+}
+
+# @cmd: ai-session-toggle
+# @desc: Toggle persistent session mode on/off
+# @usage: ai-session-toggle [on|off]
+# @example: ai-session-toggle on
+ai-session-toggle() {
+    if [ "$AI_SESSION" = "true" ]; then
+        export AI_SESSION="false"
+        echo -e "\033[0;33mSession Memory:\033[0m DISABLED (Commands run independently)"
+    else
+        export AI_SESSION="true"
+        _init_session_file
+        echo -e "\033[0;32mSession Memory:\033[0m ENABLED (Commands share previous context)"
+    fi
+}
+
+# @cmd: ai-session-show
+# @desc: Show current session memory history
+# @usage: ai-session-show
+# @example: ai-session-show
+ai-session-show() {
+    _init_session_file
+    if [ "$(jq 'length' "$AI_SESSION_FILE")" -eq 0 ]; then
+        echo "Session memory is currently empty."
+    else
+        echo -e "\033[1;34m=== Active Session History ===\033[0m"
+        jq -r '.[] | "\u001b[1m[" + .role + "]:\u001b[0m\n" + .content + "\n---"' "$AI_SESSION_FILE"
+    fi
+}
+
+
+# @cmd: ai-chat
+# @desc: Multi-turn session-based interactive conversation
+# @usage: ai-chat [--clear|--show|--toggle]
+# @example: ai-chat --show
+ai-chat() {
+    case "$1" in
+        --clear|-c)
+            ai-session-clear
+            ;;
+        --show|-s)
+            ai-session-show
+            ;;
+        --toggle|-t)
+            ai-session-toggle
+            ;;
+        *)
+            # Enable session mode for chat command
+            local old_session="$AI_SESSION"
+            export AI_SESSION="true"
+            
+            _ollama_exec "You are a helpful programming assistant in a multi-turn terminal session." "$*"
+            
+            export AI_SESSION="$old_session"
+            ;;
+    esac
 }
 
 # ==============================================================================
@@ -208,9 +346,9 @@ ai-skeleton() {
 # @example: ai-skeleton-bench src/app.py
 ai-skeleton-bench() {
     if [ -t 0 ] && [ -n "$1" ]; then
-        python3 "${LLAMALIAS_DIR}/core/py_skeleton_benchmark.py" "$1" --model "$OLLAMA_MODEL"
+        python3 "${LLAMALIAS_DIR}/core/py_skeleton_benchmark.py" "$1" --model "$AI_MODEL"
     else
-        python3 "${LLAMALIAS_DIR}/core/py_skeleton_benchmark.py" --model "$OLLAMA_MODEL"
+        python3 "${LLAMALIAS_DIR}/core/py_skeleton_benchmark.py" --model "$AI_MODEL"
     fi
 }
 
