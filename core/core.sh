@@ -598,3 +598,30 @@ _ai_session_exit_hook() {
 
 # Register signal handler to execute when the shell process terminates
 trap _ai_session_exit_hook EXIT
+
+# ==============================================================================
+# Shell Startup Hook (Auto-Restore Latest Session)
+# ==============================================================================
+
+_ai_session_startup_hook() {
+    if [ "$AI_AUTO_RESTORE" = "true" ]; then
+        local autosave_file="${AI_SESSIONS_DIR:-$HOME/.llamalias}/autosave.json"
+
+        if [ -f "$autosave_file" ]; then
+            local msg_count
+            msg_count=$(jq 'length' "$autosave_file" 2>/dev/null || echo "0")
+
+            if [ "$msg_count" -gt 0 ]; then
+                _init_session_file
+                cp "$autosave_file" "$AI_SESSION_FILE"
+                export AI_SESSION="true"
+
+                local turns=$(( msg_count / 2 ))
+                echo -e "\033[0;32m[Llamalias Auto-Restored]\033[0m Loaded \033[1mautosave\033[0m session (\033[1m${turns}\033[0m turns active)."
+            fi
+        fi
+    fi
+}
+
+# Execute startup hook automatically when script is sourced
+_ai_session_startup_hook

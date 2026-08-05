@@ -31,3 +31,6 @@ export AI_SESSION_MAX_TURNS="${AI_SESSION_MAX_TURNS:-5}"
 
 # Persistent Named Session Storage (~/.llamalias/)
 export AI_SESSIONS_DIR="${HOME}/.llamalias"
+
+# Enable or disable automatic session restoration on shell launch (default: true)
+export AI_AUTO_RESTORE="${AI_AUTO_RESTORE:-true}"
