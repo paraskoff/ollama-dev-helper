@@ -534,3 +534,29 @@ ai-skeleton-bench() {
     fi
 }
 
+# ==============================================================================
+# Terminal Prompt Indicator (PS1 Integration)
+# ==============================================================================
+
+# Generates a dynamic prompt status badge when session mode is active
+_ai_session_ps1() {
+    if [ "$AI_SESSION" = "true" ]; then
+        local turns=0
+        if [ -f "$AI_SESSION_FILE" ]; then
+            turns=$(jq 'length / 2 | floor' "$AI_SESSION_FILE" 2>/dev/null || echo "0")
+        fi
+
+        # Color formatting: Magenta text with non-printing escapes \[ \]
+        printf '\033[1;35m🦙[%st]\033[0m ' "$turns"
+    fi
+}
+
+# Safely prepends the prompt indicator if not already registered in PS1
+_enable_ai_ps1_hook() {
+    if [[ ! "$PS1" =~ _ai_session_ps1 ]]; then
+        export PS1="\$( _ai_session_ps1 )$PS1"
+    fi
+}
+
+# Run hook upon sourcing
+_enable_ai_ps1_hook
