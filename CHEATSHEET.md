@@ -5,21 +5,41 @@ Auto-generated command documentation.
 
 | Command | Description | Usage |
 | :--- | :--- | :--- |
+| `ai-ask` | Send a direct, raw prompt to the active Ollama model | `ai-ask <prompt>` |
 | `ai-model` | View currently active model or switch to a new local model dynamically across all helpers | `ai-model [model_name]` |
 | `ai-status` | Display active helper configuration, Ollama API endpoint, and loaded runners | `ai-status` |
+| `ai-help` | Display overview or detail help for registered CLI commands | `ai-help [command_name]` |
+| `ai-cheatsheet` | Generate a Markdown cheat sheet for all commands across core and modules | `ai-cheatsheet [--save]` |
+| `ai-lint` | Lint module and core files for properly formatted docstrings | `ai-lint` |
+
+## Session Management
+
+| Command | Description | Usage |
+| :--- | :--- | :--- |
+| `ai-session-save` | Save active session memory under a named profile | `ai-session-save <session_name>` |
+| `ai-session-load` | Load a named session profile into active memory | `ai-session-load <sesion_name>` |
+| `ai-session-list` | List all saved named session profiles | `ai-session-list` |
+| `ai-session-rm` | Delete a saved named session profile | `ai-session-rm <session_name>` |
+| `ai-session` | Unified Session Manager Dispatcher (`ai-session`) | `ai-session [save\|load\|list\|ls\|rm\|del\|clear\|show\|toggle\|cap]` |
 | `ai-session-clear` | Clear active session memory | `ai-session-clear` |
 | `ai-session-toggle` | Toggle persistent session mode on/off | `ai-session-toggle [on\|off]` |
 | `ai-session-show` | Show current session memory history | `ai-session-show` |
 | `ai-chat` | Multi-turn session-based interactive conversation | `ai-chat [--clear\|--show\|--toggle]` |
 | `ai-session-cap` | Dynamic command to change or view turn limits on the fly | `ai-session-cap <max-session-turns>` |
+
+## Performance Tracking & Execution Engine
+
+| Command | Description | Usage |
+| :--- | :--- | :--- |
 | `ai-perf` | Toggle real-time execution timing, token generation speed (tok/s), and prompt evaluation metrics on or off | `ai-perf [on\|off]` |
+
+## Context Compaction Settings & Filters
+
+| Command | Description | Usage |
+| :--- | :--- | :--- |
 | `ai-compact` | Toggle automatic prompt context minification (AST skeletonization + whitespace/comment stripping) on or off | `ai-compact [on\|off]` |
 | `ai-skeleton` | Run Python code through the local AST skeletonizer to preview stripped function bodies without sending a request to Ollama | `cat <file> \| ai-skeleton [min_lines]` |
 | `ai-skeleton-bench` | Runs code through AST skeletonizer across multiple threshold steps (0, 5, 10, 20...) and measures token reduction | `ai-skeleton-bench [file] OR cat <file> \| ai-skeleton-bench` |
-| `ai-ask` | Send a direct, raw prompt to the active Ollama model | `ai-ask <prompt>` |
-| `ai-help` | Display overview or detail help for registered CLI commands | `ai-help [command_name]` |
-| `ai-cheatsheet` | Generate a Markdown cheat sheet for all commands across core and modules | `ai-cheatsheet [--save]` |
-| `ai-lint` | Lint module and core files for properly formatted docstrings | `ai-lint` |
 
 ## Code Quality & Engineering
 

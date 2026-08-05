@@ -202,6 +202,14 @@ _ollama_exec() {
     rm -f "$tmp_file"
 }
 
+# @cmd: ai-ask
+# @desc: Send a direct, raw prompt to the active Ollama model
+# @usage: ai-ask <prompt>
+# @example: ai-ask "Explain async/await in Python"
+ai-ask() {
+    _ollama_exec "$*"
+}
+
 # ==============================================================================
 # Model & Environment Management
 # ==============================================================================
@@ -235,7 +243,7 @@ ai-status() {
 }
 
 # ==============================================================================
-# Session Management
+# @category: Session Management
 # ==============================================================================
 
 # Initialize empty session file if missing
@@ -243,6 +251,146 @@ _init_session_file() {
     if [ ! -f "$AI_SESSION_FILE" ]; then
         echo "[]" > "$AI_SESSION_FILE"
     fi
+}
+
+# Helper to ensure sessions directory exists
+_init_sessions_dir() {
+    mkdir -p "$AI_SESSIONS_DIR"
+}
+
+# @cmd: ai-session-save
+# @desc: Save active session memory under a named profile
+# @usage: ai-session-save <session_name>
+# @example: ai-session-save write-unit-tests"
+ai-session-save() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: ai-session-save <session_name>"
+        return 1
+    fi
+
+    _init_sessions_dir
+    _init_session_file
+
+    if [ "$(jq 'length' "$AI_SESSION_FILE")" -eq 0 ]; then
+        echo -e "\033[0;33m[Warning]\033[0m Current session memory is empty. Nothing to save."
+        return 1
+    fi
+
+    local target_file="${AI_SESSIONS_DIR}/${name}.json"
+    cp "$AI_SESSION_FILE" "$target_file"
+    echo -e "\033[0;32m[Session Saved]\033[0m Saved active memory as \033[1m${name}\033[0m (\`${target_file}\`)"
+}
+
+# @cmd: ai-session-load
+# @desc: Load a named session profile into active memory
+# @usage: ai-session-load <sesion_name>
+# @example: ai-session-load write-unit-tests
+ai-session-load() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: ai-session-load <session_name>"
+        return 1
+    fi
+
+    local source_file="${AI_SESSIONS_DIR}/${name}.json"
+    if [ ! -f "$source_file" ]; then
+        echo -e "\033[0;31m[Error]\033[0m Saved session '\033[1m${name}\033[0m' not found in \`${AI_SESSIONS_DIR}\`."
+        return 1
+    fi
+
+    _init_session_file
+    cp "$source_file" "$AI_SESSION_FILE"
+    export AI_SESSION="true"
+
+    local turn_count
+    turn_count=$(jq 'length / 2 | floor' "$AI_SESSION_FILE")
+    echo -e "\033[0;32m[Session Loaded]\033[0m Loaded \033[1m${name}\033[0m (${turn_count} turns). Session mode is now \033[1mENABLED\033[0m."
+}
+
+# @cmd: ai-session-list
+# @desc: List all saved named session profiles
+# @usage: ai-session-list
+# @example: ai-session-list
+ai-session-list() {
+    _init_sessions_dir
+    
+    # Check for json files in directory
+    shopt -s nullglob
+    local files=("${AI_SESSIONS_DIR}"/*.json)
+    shopt -u nullglob
+
+    if [ ${#files[@]} -eq 0 ]; then
+        echo "No saved sessions found in \`${AI_SESSIONS_DIR}\`."
+        return 0
+    fi
+
+    echo -e "\033[1;34m=== Saved Llamalias Sessions ===\033[0m"
+    printf "%-20s %-12s %-20s\n" "Session Name" "Turns" "Last Modified"
+    echo "----------------------------------------------------"
+
+    for file in "${files[@]}"; do
+        local sname
+        sname=$(basename "$file" .json)
+        local turns
+        turns=$(jq 'length / 2 | floor' "$file" 2>/dev/null || echo "0")
+        local mod_time
+        mod_time=$(date -r "$file" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
+
+        printf "%-20s %-12s %-20s\n" "$sname" "$turns" "$mod_time"
+    done
+}
+
+# @cmd: ai-session-rm
+# @desc: Delete a saved named session profile
+# @usage: ai-session-rm <session_name>
+# @example: ai-session-rm write-unit-tests
+ai-session-rm() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: ai-session-rm <session_name>"
+        return 1
+    fi
+
+    local target_file="${AI_SESSIONS_DIR}/${name}.json"
+    if [ -f "$target_file" ]; then
+        rm -f "$target_file"
+        echo -e "\033[0;32m[Session Deleted]\033[0m Removed session '\033[1m${name}\033[0m'."
+    else
+        echo -e "\033[0;31m[Error]\033[0m Session '\033[1m${name}\033[0m' does not exist."
+        return 1
+    fi
+}
+
+# @cmd: ai-session
+# @desc: Unified Session Manager Dispatcher (`ai-session`)
+# @usage: ai-session [save|load|list|ls|rm|del|clear|show|toggle|cap]
+# @example: ai-session ls
+ai-session() {
+    case "$1" in
+        save)   shift; ai-session-save "$@" ;;
+        load)   shift; ai-session-load "$@" ;;
+        list|ls) ai-session-list ;;
+        rm|del) shift; ai-session-rm "$@" ;;
+        clear)  ai-session-clear ;;
+        show)   ai-session-show ;;
+        toggle) ai-session-toggle ;;
+        cap)    shift; ai-session-cap "$@" ;;
+        *)
+            echo -e "\033[1m🦙 Llamalias Session Manager\033[0m"
+            echo "Usage: ai-session <command> [args]"
+            echo ""
+            echo "Commands:"
+            echo "  save <name>    Save active session memory to ${AI_SESSIONS_DIR}/<name>.json"
+            echo "  load <name>    Load named session profile into active memory"
+            echo "  list | ls      List all saved sessions with turn counts"
+            echo "  rm <name>      Delete a saved session profile"
+            echo "  clear          Clear active in-memory session"
+            echo "  show           Print active session conversation history"
+            echo "  toggle         Enable/Disable automatic session sharing mode"
+            echo "  cap [n]        View or update max sliding window turn limit"
+            ;;
+    esac
 }
 
 # @cmd: ai-session-clear
@@ -324,7 +472,7 @@ ai-session-cap() {
 }
 
 # ==============================================================================
-# Performance Tracking & Execution Engine
+# @category: Performance Tracking & Execution Engine
 # ==============================================================================
 
 # @cmd: ai-perf
@@ -345,7 +493,7 @@ ai-perf() {
 }
 
 # ==============================================================================
-# Context Compaction Settings & Filters
+# @category: Context Compaction Settings & Filters
 # ==============================================================================
 
 # @cmd: ai-compact
@@ -386,14 +534,3 @@ ai-skeleton-bench() {
     fi
 }
 
-# ==============================================================================
-# Utility & Reference Generators
-# ==============================================================================
-
-# @cmd: ai-ask
-# @desc: Send a direct, raw prompt to the active Ollama model
-# @usage: ai-ask <prompt>
-# @example: ai-ask "Explain async/await in Python"
-ai-ask() {
-    _ollama_exec "$*"
-}
