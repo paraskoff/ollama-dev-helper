@@ -326,8 +326,8 @@ ai-session-list() {
     fi
 
     echo -e "\033[1;34m=== Saved Llamalias Sessions ===\033[0m"
-    printf "%-20s %-12s %-20s\n" "Session Name" "Turns" "Last Modified"
-    echo "----------------------------------------------------"
+    printf "%-50s %-12s %-20s\n" "Session Name" "Turns" "Last Modified"
+    echo "----------------------------------------------------------------------------------"
 
     for file in "${files[@]}"; do
         local sname
@@ -337,7 +337,7 @@ ai-session-list() {
         local mod_time
         mod_time=$(date -r "$file" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Unknown")
 
-        printf "%-20s %-12s %-20s\n" "$sname" "$turns" "$mod_time"
+        printf "%-50s %-12s %-20s\n" "$sname" "$turns" "$mod_time"
     done
 }
 
@@ -571,3 +571,30 @@ _enable_ai_ps1_hook() {
 
 # Register prompt hook upon sourcing
 _enable_ai_ps1_hook
+
+# ==============================================================================
+# Terminal Exit Hook (Auto-Save Active Session)
+# ==============================================================================
+
+_ai_session_exit_hook() {
+    # Check if session mode was active and history exists
+    if [ "$AI_SESSION" = "true" ] && [ -f "$AI_SESSION_FILE" ]; then
+        local msg_count
+        msg_count=$(jq 'length' "$AI_SESSION_FILE" 2>/dev/null || echo "0")
+
+        if [ "$msg_count" -gt 0 ]; then
+            _init_sessions_dir
+
+            # 1. Update primary 'autosave' profile (for easy one-command restoration)
+            cp "$AI_SESSION_FILE" "${AI_SESSIONS_DIR}/autosave.json"
+
+            # 2. Save a timestamped copy to prevent accidental overwrites over time
+            local timestamp
+            timestamp=$(date "+%Y%m%d_%H%M%S")
+            cp "$AI_SESSION_FILE" "${AI_SESSIONS_DIR}/autosave_${timestamp}.json"
+        fi
+    fi
+}
+
+# Register signal handler to execute when the shell process terminates
+trap _ai_session_exit_hook EXIT
