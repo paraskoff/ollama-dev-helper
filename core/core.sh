@@ -538,25 +538,36 @@ ai-skeleton-bench() {
 # Terminal Prompt Indicator (PS1 Integration)
 # ==============================================================================
 
-# Generates a dynamic prompt status badge when session mode is active
-_ai_session_ps1() {
+# Generates a dynamic prompt status badge with active model and session state
+_ai_ps1() {
+    # 1. Active Model Indicator
+    local model_name="${AI_MODEL:-mistral}"
+    
+    # Strip tag if desired (e.g., display 'mistral' instead of 'mistral:latest')
+    # model_name="${model_name%%:*}"
+
+    local model_badge="\033[0;36m🤖[${model_name}]\033[0m"
+
+    # 2. Session Indicator (if AI_SESSION is true)
+    local session_badge=""
     if [ "$AI_SESSION" = "true" ]; then
         local turns=0
         if [ -f "$AI_SESSION_FILE" ]; then
             turns=$(jq 'length / 2 | floor' "$AI_SESSION_FILE" 2>/dev/null || echo "0")
         fi
-
-        # Color formatting: Magenta text with non-printing escapes \[ \]
-        printf '\033[1;35m🦙[%st]\033[0m ' "$turns"
+        session_badge="\033[1;35m🦙[${turns}t]\033[0m"
     fi
+
+    # Print badges followed by a space
+    printf "${model_badge}${session_badge} "
 }
 
-# Safely prepends the prompt indicator if not already registered in PS1
+# Safely prepends the prompt indicator to PS1 if not already present
 _enable_ai_ps1_hook() {
-    if [[ ! "$PS1" =~ _ai_session_ps1 ]]; then
-        export PS1="\$( _ai_session_ps1 )$PS1"
+    if [[ ! "$PS1" =~ _ai_ps1 ]]; then
+        export PS1="\$( _ai_ps1 )$PS1"
     fi
 }
 
-# Run hook upon sourcing
+# Register prompt hook upon sourcing
 _enable_ai_ps1_hook
